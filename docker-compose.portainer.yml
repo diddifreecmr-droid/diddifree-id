@@ -7,11 +7,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
       REDIS_URL: redis://redis:6379/0
       APP_HOST_PORT: ${APP_HOST_PORT:-18010}
-      # These are paths inside the app container. The host path is supplied
-      # separately through JWT_KEYS_HOST_PATH in Portainer.
+      # The keys live in the persistent Docker volume mounted below.
       JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
       JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
-      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-diddifree-initial}
       JWT_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_PREVIOUS_PUBLIC_KEY_PATH:-}
       JWT_PREVIOUS_KID: ${JWT_PREVIOUS_KID:-}
       JWT_ISSUER: ${JWT_ISSUER:-diddifree-id}
@@ -33,10 +32,16 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ${JWT_KEYS_HOST_PATH:?Set JWT_KEYS_HOST_PATH in Portainer to the VPS keys directory}:/app/keys:ro
-    command: >
-      sh -c "alembic upgrade head &&
-      uvicorn identity_app.main:app --host 0.0.0.0 --port 8000"
+      - jwtkeys:/app/keys
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -s /app/keys/private.pem ] || [ ! -s /app/keys/public.pem ]; then
+          python scripts/generate_keys.py --out /app/keys --kid "${JWT_ACTIVE_KID:-diddifree-initial}"
+        fi
+        alembic upgrade head
+        exec uvicorn identity_app.main:app --host 0.0.0.0 --port 8000
 
   db:
     image: postgres:16-alpine
@@ -67,3 +72,4 @@ services:
 
 volumes:
   pgdata:
+  jwtkeys:
