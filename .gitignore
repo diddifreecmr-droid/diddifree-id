@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.claude/
 
 # Local configuration and, above all, signing material. A private key in the
 # repository would defeat the whole point of RS256 (architecture §5).
