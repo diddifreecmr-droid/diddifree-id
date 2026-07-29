@@ -3,14 +3,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    env_file:
-      - .env
     environment:
-      # Inside the compose network the services resolve by name, so these
-      # override whatever localhost values .env carries for host-side work.
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
       APP_HOST_PORT: ${APP_HOST_PORT:-18000}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      JWT_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_PREVIOUS_PUBLIC_KEY_PATH:-}
+      JWT_PREVIOUS_KID: ${JWT_PREVIOUS_KID:-}
+      JWT_ISSUER: ${JWT_ISSUER:-diddifree-id}
+      JWT_ACCESS_LIFETIME_MINUTES: ${JWT_ACCESS_LIFETIME_MINUTES:-15}
+      REFRESH_TOKEN_LIFETIME_DAYS: ${REFRESH_TOKEN_LIFETIME_DAYS:-30}
+      OTP_CODE_LIFETIME_SECONDS: ${OTP_CODE_LIFETIME_SECONDS:-300}
+      OTP_RATE_LIMIT_SECONDS: ${OTP_RATE_LIMIT_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      OTP_HASH_PEPPER: ${OTP_HASH_PEPPER}
+      OTP_LOG_PLAINTEXT: ${OTP_LOG_PLAINTEXT:-false}
+      SERVICE_API_KEYS: ${SERVICE_API_KEYS:-}
+      API_PREFIX: ${API_PREFIX:-/identity/v1}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     ports:
       - "${APP_HOST_PORT:-18000}:8000"
     depends_on:
@@ -19,27 +31,20 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # Source mount for live reload in development. Remove for production
-      # images - the code is already baked into the layer.
       - ./identity_app:/app/identity_app
       - ./alembic:/app/alembic
-      # Dev signing keys. In production these come from the secrets vault and
-      # are never part of the image or a bind mount (architecture section 9.1).
       - ./keys:/app/keys:ro
     command: >
       sh -c "alembic upgrade head &&
-      uvicorn identity_app.main:app --host 0.0.0.0 --port 8000 --reload"
+      uvicorn identity_app.main:app --host 0.0.0.0 --port 8000"
 
   db:
-    # No PostGIS here, unlike DiddiGo - DiddiFreeID stores no geometry.
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: diddi_free_id
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
-    # Host port is configurable and intentionally kept away from the usual
-    # ecosystem defaults. Portainer can override DB_HOST_PORT for this stack.
     ports:
       - "${DB_HOST_PORT:-15435}:5432"
     volumes:
@@ -53,7 +58,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    # Host port is configurable for the same coexistence reason as Postgres.
     ports:
       - "${REDIS_HOST_PORT:-16381}:6379"
     healthcheck:

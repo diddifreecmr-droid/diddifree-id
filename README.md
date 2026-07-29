@@ -14,7 +14,7 @@ Service d'identité central de l'écosystème DiddiFree. Implémentation de
 workon diddicore                      # virtualenv du projet
 pip install -e ".[dev]"
 
-docker compose up -d db redis         # Postgres :5435, Redis :6381
+docker compose up -d db redis         # Postgres :15435, Redis :16381
 python scripts/generate_keys.py       # paire RSA de développement → keys/
 cp .env.example .env                  # puis ajuster si besoin
 
@@ -24,10 +24,17 @@ uvicorn identity_app.main:app --reload
 
 Documentation interactive : `http://localhost:8000/docs`.
 
-Les ports 5435 et 6381 ne sont pas ceux de DiddiGo (5433/6379) ni de
+Pour Portainer, utiliser `docker-compose.portainer.yml` et injecter toutes les
+variables via l'interface de la stack. Ce fichier ne charge pas `.env`.
+
+Les ports 15435 et 16381 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite
 en §7 de l'architecture.
+
+Le service `app` expose par défaut le port `18000` sur l'hôte. Si Portainer ou
+le VPS utilise déjà ce port, il suffit d'override `APP_HOST_PORT` dans
+`.env` ou dans la stack.
 
 ## Tests
 
