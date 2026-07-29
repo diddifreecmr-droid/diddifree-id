@@ -41,7 +41,7 @@ services:
     # Host port is configurable and intentionally kept away from the usual
     # ecosystem defaults. Portainer can override DB_HOST_PORT for this stack.
     ports:
-      - "${DB_HOST_PORT:-15435}:5432"
+      - "${DB_HOST_PORT:-15438}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -55,7 +55,7 @@ services:
     image: redis:7-alpine
     # Host port is configurable for the same coexistence reason as Postgres.
     ports:
-      - "${REDIS_HOST_PORT:-16381}:6379"
+      - "${REDIS_HOST_PORT:-16391}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

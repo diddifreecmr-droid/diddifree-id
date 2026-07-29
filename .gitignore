@@ -10,4 +10,5 @@ venv/
 # Local configuration and, above all, signing material. A private key in the
 # repository would defeat the whole point of RS256 (architecture §5).
 .env
+.env copy
 keys/
