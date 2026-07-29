@@ -30,6 +30,24 @@ les URLs internes `db:5432` et `redis:6379`; ne pas injecter des URLs en
 avec le chemin absolu du dossier de clés présent sur le VPS. Ce fichier ne
 charge pas `.env`.
 
+Les chemins des clés sont fixes dans le conteneur : `/app/keys/private.pem` et
+`/app/keys/public.pem`. `JWT_KEYS_HOST_PATH` est le seul chemin côté VPS. Les
+clés ne sont pas générées automatiquement par l'application : une paire doit
+être créée une fois sur le VPS avant le premier démarrage de la stack.
+
+Exemple, à exécuter sur le VPS après installation des dépendances du projet :
+
+```bash
+mkdir -p /opt/diddifree-id/keys
+python scripts/generate_keys.py --out /opt/diddifree-id/keys --kid prod-2026-07-29
+chmod 700 /opt/diddifree-id/keys
+chmod 600 /opt/diddifree-id/keys/private.pem
+chmod 644 /opt/diddifree-id/keys/public.pem
+```
+
+Dans Portainer, définir ensuite `JWT_KEYS_HOST_PATH=/opt/diddifree-id/keys` et
+`JWT_ACTIVE_KID=prod-2026-07-29`.
+
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite

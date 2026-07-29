@@ -7,8 +7,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
       REDIS_URL: redis://redis:6379/0
       APP_HOST_PORT: ${APP_HOST_PORT:-18010}
-      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
-      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+      # These are paths inside the app container. The host path is supplied
+      # separately through JWT_KEYS_HOST_PATH in Portainer.
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
       JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
       JWT_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_PREVIOUS_PUBLIC_KEY_PATH:-}
       JWT_PREVIOUS_KID: ${JWT_PREVIOUS_KID:-}
