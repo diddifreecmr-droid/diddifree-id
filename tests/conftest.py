@@ -27,12 +27,12 @@ import pytest
 # Settings are read at import time, so every environment value the app depends
 # on must be set before the first `identity_app.*` import below.
 TEST_DB_NAME = "diddi_free_id_test"
-ADMIN_DSN = "postgresql://postgres:postgres@localhost:5435/postgres"
-TEST_DSN_SYNC = f"postgresql://postgres:postgres@localhost:5435/{TEST_DB_NAME}"
-TEST_DSN_ASYNC = f"postgresql+asyncpg://postgres:postgres@localhost:5435/{TEST_DB_NAME}"
+ADMIN_DSN = "postgresql://postgres:postgres@localhost:15438/postgres"
+TEST_DSN_SYNC = f"postgresql://postgres:postgres@localhost:15438/{TEST_DB_NAME}"
+TEST_DSN_ASYNC = f"postgresql+asyncpg://postgres:postgres@localhost:15438/{TEST_DB_NAME}"
 
 os.environ["DATABASE_URL"] = TEST_DSN_ASYNC
-os.environ.setdefault("REDIS_URL", "redis://localhost:6381/1")
+os.environ.setdefault("REDIS_URL", "redis://localhost:16391/1")
 # Rate limiting off by default so back-to-back OTP requests in a test do not
 # 429. `test_rate_limiting.py` turns it back on explicitly for its own case.
 os.environ.setdefault("OTP_RATE_LIMIT_SECONDS", "0")
