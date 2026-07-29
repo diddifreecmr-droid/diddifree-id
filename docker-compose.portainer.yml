@@ -24,15 +24,13 @@ services:
       API_PREFIX: ${API_PREFIX:-/identity/v1}
       ENVIRONMENT: ${ENVIRONMENT:-production}
     ports:
-      - "${APP_HOST_PORT:-18000}:8000"
+      - "${APP_HOST_PORT:-18010}:8000"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./identity_app:/app/identity_app
-      - ./alembic:/app/alembic
       - ./keys:/app/keys:ro
     command: >
       sh -c "alembic upgrade head &&
