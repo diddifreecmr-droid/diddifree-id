@@ -1,0 +1,16 @@
+# Le dépôt est normalisé en LF. Les postes Windows gardent CRLF dans leur copie
+# de travail, mais ce qui est commité reste en LF — sans ça, un aller-retour
+# entre un poste Windows et la CI Linux fait apparaître des fichiers entiers
+# comme modifiés dans les diffs.
+* text=auto eol=lf
+
+# Fichiers exécutés dans un conteneur Linux : jamais de CRLF, même côté poste,
+# sinon le shebang casse.
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Binaires — ne jamais toucher.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.pem binary

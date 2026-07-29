@@ -1,0 +1,66 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the services resolve by name, so these
+      # override whatever localhost values .env carries for host-side work.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Source mount for live reload in development. Remove for production
+      # images — the code is already baked into the layer.
+      - ./identity_app:/app/identity_app
+      - ./alembic:/app/alembic
+      # Dev signing keys. In production these come from the secrets vault and
+      # are never part of the image or a bind mount (architecture §9.1).
+      - ./keys:/app/keys:ro
+    command: uvicorn identity_app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  db:
+    # No PostGIS here, unlike DiddiGo — DiddiFreeID stores no geometry.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: diddi_free_id
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    # 5435 on the host. The lower ports are already taken on a machine running
+    # the rest of the ecosystem: 5432 by DiddiMap, 5433 by DiddiGo, 5434 by
+    # DiddiPay/Fund. Those stacks run side by side with this one — notably
+    # during the DiddiGo migration of architecture §7.
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d diddi_free_id"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # 6381 for the same coexistence reason as the Postgres port above
+    # (6379 → DiddiGo, 6380 → DiddiPay/Fund).
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

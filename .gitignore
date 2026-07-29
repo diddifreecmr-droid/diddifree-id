@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and, above all, signing material. A private key in the
+# repository would defeat the whole point of RS256 (architecture §5).
+.env
+keys/
