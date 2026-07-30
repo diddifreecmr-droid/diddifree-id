@@ -23,6 +23,7 @@ services:
       OTP_LOG_PLAINTEXT: ${OTP_LOG_PLAINTEXT:-false}
       SERVICE_API_KEYS: ${SERVICE_API_KEYS:-}
       API_PREFIX: ${API_PREFIX:-/identity/v1}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
     ports:
       - "${APP_HOST_PORT:-18010}:8000"

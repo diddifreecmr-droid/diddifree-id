@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # carries the module segment too. A gateway that already strips `/identity`
     # can set API_PREFIX=/v1 without a code change.
     api_prefix: str = "/identity/v1"
+    # Comma-separated browser origins. Empty keeps CORS disabled by default.
+    cors_allowed_origins: str = ""
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5435/diddi_free_id"
     redis_url: str = "redis://localhost:6381/0"
@@ -63,6 +65,11 @@ class Settings(BaseSettings):
         """Parsed `SERVICE_API_KEYS`. Empty means key-based service auth is
         disabled and only `role=service` access tokens are accepted."""
         return frozenset(key.strip() for key in self.service_api_keys.split(",") if key.strip())
+
+    @property
+    def cors_allowed_origin_list(self) -> list[str]:
+        """Return configured browser origins without empty entries."""
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

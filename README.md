@@ -37,6 +37,10 @@ Les chemins des clés sont fixes dans le conteneur : `/app/keys/private.pem` et
 `/app/keys/public.pem`. Ils sont générés automatiquement au premier démarrage
 et ne sont pas exposés dans les variables d'environnement de Portainer.
 
+Pour les interfaces de test, définir `CORS_ALLOWED_ORIGINS` dans la stack
+Portainer avec les origines exactes séparées par des virgules, par exemple
+`http://localhost:3000,http://localhost:5173`.
+
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite

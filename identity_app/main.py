@@ -11,6 +11,7 @@ it. Consumers can use either and get the same key set.
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 
 from identity_app.core.errors import ApiError, api_error_handler, api_error_response
 from identity_app.core.lifespan import lifespan
@@ -25,6 +26,14 @@ app = FastAPI(
     description="Service d'identité central de l'écosystème DiddiFree.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origin_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Service-Key"],
 )
 
 app.add_exception_handler(ApiError, api_error_handler)
