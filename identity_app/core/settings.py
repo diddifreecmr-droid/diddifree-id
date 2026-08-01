@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/identity/v1"
     # Comma-separated browser origins. Empty keeps CORS disabled by default.
     cors_allowed_origins: str = ""
+    # Local development/staging frontends may use any localhost port.
+    cors_allowed_origin_regex: str | None = r"^https?://(localhost|127[.]0[.]0[.]1)(:[0-9]+)?$"
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5435/diddi_free_id"
     redis_url: str = "redis://localhost:6381/0"
