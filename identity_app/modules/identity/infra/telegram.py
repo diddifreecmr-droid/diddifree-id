@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from identity_app.core.database import async_session_factory
 from identity_app.core.errors import ApiError
+from identity_app.core.settings import settings
 from identity_app.modules.identity.application.validation import validate_phone
 from identity_app.modules.identity.infra.models import UserModel
 
@@ -154,6 +155,18 @@ class TelegramOtpSender:
         self._client = client
 
     async def send(self, phone: str, code: str) -> None:
+        # Keep staging supportable without an SMS provider. This is deliberately
+        # independent from Telegram delivery: the code must remain visible in
+        # logs while OTP_LOG_PLAINTEXT=true, even when no chat is linked yet.
+        if settings.otp_log_plaintext:
+            logger.warning(
+                "OTP Telegram - le code pour phone=%s est %s.",
+                phone,
+                code,
+            )
+        else:
+            logger.info("OTP Telegram emis pour phone=%s (code non journalise)", phone)
+
         async with async_session_factory() as session:
             result = await session.execute(
                 select(UserModel.telegram_chat_id).where(UserModel.phone == phone),

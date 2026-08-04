@@ -44,7 +44,12 @@ Le transport peut être activé dans Portainer avec :
 ```text
 OTP_PROVIDER=telegram
 TELEGRAM_BOT_TOKEN=<secret fourni par Portainer>
+OTP_LOG_PLAINTEXT=true
 ```
+
+Tant que `OTP_LOG_PLAINTEXT=true`, le code est visible dans les logs même avec
+Telegram. Pour le masquer, définir explicitement `OTP_LOG_PLAINTEXT=false`
+dans Portainer.
 
 Le token n'est jamais versionné. L'utilisateur ouvre le bot, partage son
 propre contact, puis Auth lie `telegram_user_id` et `telegram_chat_id` à son
