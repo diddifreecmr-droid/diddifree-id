@@ -1,5 +1,9 @@
 # DiddiFreeID
 
+> **Frontière actuelle** : DiddiFreeID gère l'identité, l'authentification, le
+> profil global et les statuts de compte. Les rôles métier (`driver`,
+> `merchant`, etc.) sont gérés par leurs modules propriétaires, pas par Auth.
+
 Service d'identité central de l'écosystème DiddiFree. Implémentation de
 [`DiddiFreeID_Architecture.md`](DiddiFreeID_Architecture.md) et de
 [`DiddiFreeID_Contrat_API.md`](DiddiFreeID_Contrat_API.md).

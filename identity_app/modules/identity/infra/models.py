@@ -36,6 +36,8 @@ class UserModel(Base):
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    language: Mapped[str] = mapped_column(String(2), nullable=False, server_default=text("'fr'"))
+    photo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'user'"))
     status: Mapped[str] = mapped_column(

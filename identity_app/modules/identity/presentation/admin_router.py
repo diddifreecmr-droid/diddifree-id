@@ -31,7 +31,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get("/users", response_model=UserListResponse)
 async def list_users(
-    role: str | None = Query(default=None, examples=["driver"]),
+    role: str | None = Query(default=None, examples=["user"]),
     status: str | None = Query(default=None, examples=["active"]),
     pending_kyc: bool = Query(
         default=False,

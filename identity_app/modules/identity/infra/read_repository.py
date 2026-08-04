@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from identity_app.modules.identity.domain.entities import User, UserRole, UserStatus
+from identity_app.modules.identity.domain.entities import User, UserLanguage, UserRole, UserStatus
 from identity_app.modules.identity.infra import models as orm
 
 # Ceiling on `page_size` so a single admin request cannot ask for the whole
@@ -27,6 +27,8 @@ def _to_domain(row: orm.UserModel) -> User:
         id=row.id,
         phone=row.phone,
         full_name=row.full_name,
+        language=UserLanguage(row.language),
+        photo_url=row.photo_url,
         password_hash=row.password_hash,
         role=UserRole(row.role),
         status=UserStatus(row.status),

@@ -34,12 +34,19 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 
+# These values remain readable for a rolling migration of old rows, but Auth
+# must not assign them. The owning modules keep their own business roles.
+MODULE_OWNED_ROLE_NAMES: frozenset[str] = frozenset({"driver", "merchant"})
+
+
 #: Roles DiddiFreeID will not hand out without a KYC decision (architecture §7.5:
 #: driver validation moves here, out of DiddiGo's auto-approval).
 #:
 #: `admin` is absent on purpose — the first admin is bootstrapped by ops, and a
 #: KYC queue that nobody can approve until an admin exists would deadlock.
-KYC_REQUIRED_ROLES: frozenset[UserRole] = frozenset({UserRole.DRIVER, UserRole.MERCHANT})
+# KYC for a business role belongs to the owning module. This set is kept empty
+# so new Auth flows can never create a module-owned KYC request.
+KYC_REQUIRED_ROLES: frozenset[UserRole] = frozenset()
 
 
 class UserStatus(str, Enum):
@@ -47,6 +54,13 @@ class UserStatus(str, Enum):
     PENDING_KYC = "pending_kyc"
     ACTIVE = "active"
     SUSPENDED = "suspended"
+
+
+class UserLanguage(str, Enum):
+    """Languages currently supported by the ecosystem profile."""
+
+    FR = "fr"
+    EN = "en"
 
 
 # Transitions the OTP flow, the KYC flow or an admin may perform. Anything
@@ -97,6 +111,8 @@ class User:
     role: UserRole = UserRole.USER
     status: UserStatus = UserStatus.PENDING_VERIFICATION
     full_name: str | None = None
+    language: UserLanguage = UserLanguage.FR
+    photo_url: str | None = None
     password_hash: str | None = None  # NULL when the account is OTP-only
     #: Role awaiting a KYC decision. Set when a module requests a promotion to a
     #: role in `KYC_REQUIRED_ROLES`, cleared when the decision lands. The user

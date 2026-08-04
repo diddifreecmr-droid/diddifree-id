@@ -18,7 +18,7 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
-from identity_app.modules.identity.domain.entities import User, UserRole, UserStatus
+from identity_app.modules.identity.domain.entities import User, UserLanguage, UserRole, UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,8 @@ class RedisProfileCache:
                 id=UUID(data["id"]),
                 phone=data["phone"],
                 full_name=data["full_name"],
+                language=UserLanguage(data.get("language", "fr")),
+                photo_url=data.get("photo_url"),
                 role=UserRole(data["role"]),
                 status=UserStatus(data["status"]),
                 created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
@@ -68,6 +70,8 @@ class RedisProfileCache:
                 "id": str(user.id),
                 "phone": user.phone,
                 "full_name": user.full_name,
+                "language": user.language.value,
+                "photo_url": user.photo_url,
                 "role": user.role.value,
                 "status": user.status.value,
                 "created_at": user.created_at.isoformat() if user.created_at else None,

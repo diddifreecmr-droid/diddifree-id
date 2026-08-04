@@ -177,6 +177,10 @@ async def test_module_requesting_driver_queues_a_kyc_file(client, user_session):
         headers={"X-Service-Key": SERVICE_KEY},
     )
 
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "ROLE_OWNED_BY_MODULE"
+    return
+
     assert r.status_code == 200
     body = r.json()
     assert body["requested_role"] == "driver"

@@ -17,6 +17,11 @@
 
 ---
 
+> **Mise à jour d'architecture (2026-08-04)** : l'authentification et le
+> profil sont centraux, mais les rôles métier restent dans les modules qui les
+> définissent. Auth ne crée plus de rôle `driver` ou `merchant` ; ces anciennes
+> valeurs restent lisibles uniquement pour permettre une migration progressive.
+
 ## 0. Rôle dans l'écosystème
 
 Le cahier des charges pose DiddiFree ID comme le socle transverse :

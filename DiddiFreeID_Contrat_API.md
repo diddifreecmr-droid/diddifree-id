@@ -21,6 +21,13 @@ l'écosystème.
 
 ---
 
+> **Mise à jour d'architecture (2026-08-04)** : DiddiFreeID ne possède que les
+> rôles globaux de plateforme (`user`, `admin`). Les rôles métier comme
+> `driver`, `merchant`, `investor` ou `campaign_owner` appartiennent à leurs
+> modules. Les anciennes sections KYC/role métier sont conservées comme
+> historique de migration ; une nouvelle demande de rôle métier répond
+> `409 ROLE_OWNED_BY_MODULE`.
+
 ## 0. Conventions générales
 
 ### Deux façons de consommer DiddiFreeID
@@ -281,6 +288,21 @@ Un compte en `pending_kyc` accède à cette route : son propriétaire doit pouvo
 voir où en est sa demande.
 
 ### `PATCH /users/me`
+
+Le profil global contient aussi `language` (`fr` ou `en`, `fr` par défaut) et
+`photo_url` (lien vers la photo, sans upload géré par DiddiFreeID pour le
+moment). Ces champs peuvent être modifiés avec le nom.
+
+```json
+{
+  "language": "en",
+  "photo_url": "https://cdn.example.com/profile.jpg"
+}
+```
+
+Le numéro reste une donnée d'identité vérifiée. Son changement ne passe pas par
+ce PATCH général : il nécessitera une procédure OTP dédiée sur le nouveau
+numéro.
 
 **Implémentation — nouvelle route.** Modification du profil par l'utilisateur lui-même.
 

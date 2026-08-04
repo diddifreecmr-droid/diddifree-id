@@ -52,7 +52,13 @@ async def update_me(
     user_id: UUID = Depends(get_current_user_id),
     command: UpdateProfile = Depends(update_profile_command),
 ) -> dict:
-    return await command(user_id=user_id, full_name=payload.full_name)
+    return await command(
+        user_id=user_id,
+        full_name=payload.full_name,
+        language=payload.language,
+        photo_url=payload.photo_url,
+        photo_url_provided="photo_url" in payload.model_fields_set,
+    )
 
 
 # Declared before `/{user_id}`: FastAPI matches in declaration order, and the

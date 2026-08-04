@@ -19,6 +19,7 @@ from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
     User,
+    UserLanguage,
     UserRole,
     UserRoleChange,
     UserStatus,
@@ -32,6 +33,8 @@ def _user_to_domain(row: orm.UserModel) -> User:
         id=row.id,
         phone=row.phone,
         full_name=row.full_name,
+        language=UserLanguage(row.language),
+        photo_url=row.photo_url,
         password_hash=row.password_hash,
         role=UserRole(row.role),
         status=UserStatus(row.status),
@@ -56,6 +59,8 @@ class SqlAlchemyUserWriteRepository:
                 id=user.id,
                 phone=user.phone,
                 full_name=user.full_name,
+                language=user.language.value,
+                photo_url=user.photo_url,
                 password_hash=user.password_hash,
                 role=user.role.value,
                 status=user.status.value,
@@ -66,6 +71,8 @@ class SqlAlchemyUserWriteRepository:
             self._session.add(row)
         else:
             row.full_name = user.full_name
+            row.language = user.language.value
+            row.photo_url = user.photo_url
             row.password_hash = user.password_hash
             row.role = user.role.value
             row.status = user.status.value

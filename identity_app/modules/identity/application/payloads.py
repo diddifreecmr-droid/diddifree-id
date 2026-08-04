@@ -26,6 +26,8 @@ def profile_payload(user: User) -> dict:
         "id": str(user.id),
         "phone": user.phone,
         "full_name": user.full_name,
+        "language": user.language.value,
+        "photo_url": user.photo_url,
         "role": user.role.value,
         "status": user.status.value,
         "requested_role": user.requested_role.value if user.requested_role else None,

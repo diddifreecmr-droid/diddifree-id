@@ -8,6 +8,8 @@ reshaped a second time here.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -41,10 +43,12 @@ class LogoutRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=120)
+    language: Literal["fr", "en"] | None = None
+    photo_url: str | None = Field(default=None, max_length=2048)
 
 
 class ChangeRoleRequest(BaseModel):
-    role: str = Field(examples=["driver"])
+    role: str = Field(examples=["admin"])
     reason: str | None = Field(
         default=None,
         examples=["Validation KYC chauffeur DiddiGo, dossier #4021"],
@@ -76,6 +80,8 @@ class UserProfile(BaseModel):
     id: str
     phone: str
     full_name: str | None
+    language: Literal["fr", "en"]
+    photo_url: str | None
     role: str
     status: str
     #: Role awaiting a KYC decision, `null` when nothing is pending. Additive to
