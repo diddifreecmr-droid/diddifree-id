@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,8 @@ class UserModel(Base):
         server_default=text("uuid_generate_v4()"),
     )
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'user'"))

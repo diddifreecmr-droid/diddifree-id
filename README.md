@@ -41,6 +41,11 @@ Pour les interfaces de test, définir `CORS_ALLOWED_ORIGINS` dans la stack
 Portainer avec les origines exactes séparées par des virgules, par exemple
 `http://localhost:3000,http://localhost:5173`.
 
+En staging, le transport OTP peut être basculé sur Telegram avec
+`OTP_PROVIDER=telegram` et `TELEGRAM_BOT_TOKEN` dans Portainer. L'utilisateur
+doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
+`telegram_chat_id` à son compte et envoie les codes suivants dans ce chat.
+
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite

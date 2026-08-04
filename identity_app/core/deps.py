@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from identity_app.core.database import get_session
 from identity_app.core.redis import get_redis  # noqa: F401 — re-exported
+from identity_app.core.settings import settings
 from identity_app.modules.identity.application.commands import (
     ChangeRole,
     ChangeStatus,
@@ -42,7 +43,9 @@ from identity_app.modules.identity.application.queries import (
 from identity_app.modules.identity.infra.cache import RedisProfileCache
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
 from identity_app.modules.identity.infra.read_repository import SqlAlchemyUserReadRepository
+from identity_app.modules.identity.domain.interfaces import OtpSender
 from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
+from identity_app.modules.identity.infra.telegram import TelegramOtpSender
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
     SqlAlchemyOtpRepository,
@@ -108,7 +111,12 @@ def otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisOtpRateLimiter:
     return RedisOtpRateLimiter(redis)
 
 
-def otp_sender() -> LoggingOtpSender:
+def otp_sender(request: Request) -> OtpSender:
+    if settings.otp_provider == "telegram":
+        client = getattr(request.app.state, "telegram_client", None)
+        if client is None:
+            raise RuntimeError("Telegram OTP provider is enabled but the bot is not running")
+        return TelegramOtpSender(client)
     return LoggingOtpSender()
 
 
@@ -123,7 +131,7 @@ def register_user_command(
 def request_otp_command(
     otps: SqlAlchemyOtpRepository = Depends(otp_repo),
     users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
-    sender: LoggingOtpSender = Depends(otp_sender),
+    sender: OtpSender = Depends(otp_sender),
     limiter: RedisOtpRateLimiter = Depends(otp_rate_limiter),
 ) -> RequestOtp:
     return RequestOtp(otps=otps, users=users, sender=sender, rate_limiter=limiter)

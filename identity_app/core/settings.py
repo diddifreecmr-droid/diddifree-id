@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
     otp_log_plaintext: bool = True
 
+    # `logging` keeps local development unchanged; staging can opt into the
+    # Telegram adapter without changing the OTP application commands.
+    otp_provider: str = "logging"
+    telegram_bot_token: str | None = None
+    telegram_poll_timeout_seconds: int = 25
+
     # --- Service-to-service (contract §5, provisional) ----------------------
     service_api_keys: str = ""
 
