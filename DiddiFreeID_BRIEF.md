@@ -59,7 +59,7 @@ Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
 ```
 
 L'envoi utilise Zoho SMTP avec `direction.technique@diddifree.com` comme compte
-d'authentification et `noreply@diddifree.com` comme expéditeur. Le mot de passe
+d'authentification et `no-reply@diddifree.com` comme expéditeur. Le mot de passe
 reste uniquement dans Portainer. Zoho doit autoriser l'envoi avec cette adresse
 via la permission `Send As`.
 

@@ -28,7 +28,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-direction.technique@diddifree.com}
       SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD must be set in Portainer}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@diddifree.com}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-no-reply@diddifree.com}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-DiddiFreeID}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
       SERVICE_API_KEYS: ${SERVICE_API_KEYS:-}
