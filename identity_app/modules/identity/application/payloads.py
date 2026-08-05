@@ -25,6 +25,7 @@ def profile_payload(user: User) -> dict:
     return {
         "id": str(user.id),
         "phone": user.phone,
+        "email": user.email,
         "full_name": user.full_name,
         "language": user.language.value,
         "photo_url": user.photo_url,

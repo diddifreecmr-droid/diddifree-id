@@ -26,6 +26,7 @@ def _to_domain(row: orm.UserModel) -> User:
     return User(
         id=row.id,
         phone=row.phone,
+        email=row.email,
         full_name=row.full_name,
         language=UserLanguage(row.language),
         photo_url=row.photo_url,

@@ -50,6 +50,11 @@ En staging, le transport OTP peut être basculé sur Telegram avec
 doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
 `telegram_chat_id` à son compte et envoie les codes suivants dans ce chat.
 
+L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
+de Portainer. Une requête peut choisir explicitement `"channel": "email"` ou
+`"channel": "telegram"`. Dans les deux cas, `OTP_LOG_PLAINTEXT=true` garde le
+code visible dans les logs ; `false` le masque.
+
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite

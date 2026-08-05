@@ -37,3 +37,17 @@ async def test_profile_rejects_unsupported_language(client, user_session):
     )
 
     assert response.status_code == 422
+
+
+async def test_profile_email_is_saved_and_returned(client, user_session):
+    response = await client.patch(
+        f"{API}/users/me",
+        json={"email": "Awa.Profile@Example.com"},
+        headers=user_session["headers"],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "awa.profile@example.com"
+
+    response = await client.get(f"{API}/users/me", headers=user_session["headers"])
+    assert response.json()["email"] == "awa.profile@example.com"

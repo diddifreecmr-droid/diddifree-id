@@ -32,6 +32,8 @@ class UpdateProfile:
         *,
         user_id: UUID,
         full_name: str | None,
+        email: str | None,
+        email_provided: bool,
         language: str | None,
         photo_url: str | None,
         photo_url_provided: bool,
@@ -44,6 +46,20 @@ class UpdateProfile:
         if full_name is not None and full_name != user.full_name:
             user.full_name = full_name
             changed.append("full_name")
+
+        if email_provided:
+            normalized_email = email.strip().lower() if email else None
+            if normalized_email != user.email:
+                if normalized_email is not None:
+                    other = await self.users.find_by_email(normalized_email)
+                    if other is not None and other.id != user.id:
+                        raise ApiError(
+                            409,
+                            "EMAIL_ALREADY_REGISTERED",
+                            "Cette adresse e-mail est déjà enregistrée.",
+                        )
+                user.email = normalized_email
+                changed.append("email")
 
         if language is not None and language != user.language.value:
             user.language = UserLanguage(language)

@@ -49,6 +49,7 @@ class RedisProfileCache:
             return User(
                 id=UUID(data["id"]),
                 phone=data["phone"],
+                email=data.get("email"),
                 full_name=data["full_name"],
                 language=UserLanguage(data.get("language", "fr")),
                 photo_url=data.get("photo_url"),
@@ -69,6 +70,7 @@ class RedisProfileCache:
             {
                 "id": str(user.id),
                 "phone": user.phone,
+                "email": user.email,
                 "full_name": user.full_name,
                 "language": user.language.value,
                 "photo_url": user.photo_url,

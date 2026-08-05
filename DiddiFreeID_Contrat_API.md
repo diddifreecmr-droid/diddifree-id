@@ -102,6 +102,9 @@ là où la RFC 8615 le place et où toute bibliothèque JWT standard le cherche 
 
 ### `POST /auth/register`
 
+Le champ `email` est facultatif. Lorsqu'il est présent, il devient le
+destinataire disponible pour le canal OTP `email` et apparaît dans le profil.
+
 **Requête**
 ```json
 { "phone": "+2250700000000", "full_name": "Awa Koné" }
@@ -122,6 +125,11 @@ sa propre logique de qualification et déclenche le changement de rôle via l'AP
 ---
 
 ### `POST /auth/otp/request`
+
+**Canal facultatif** : `channel` accepte `email` ou `telegram`. S'il est
+absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal `email`
+nécessite une adresse e-mail enregistrée sur le compte. Quel que soit le
+canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 
 **Requête** : `{ "phone": "+2250700000000" }`
 
@@ -260,6 +268,9 @@ inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc 
 ---
 
 ### `GET /users/me`
+
+Le profil contient également `email`, qui peut être défini ou supprimé avec
+`PATCH /users/me`.
 
 Pour les cas où un module a besoin du profil complet (ex. afficher `full_name` sur un reçu DiddiPay) et
 ne veut pas le maintenir en cache lui-même.

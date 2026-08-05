@@ -5,6 +5,7 @@
 DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
 
 - l'inscription et la connexion par OTP ;
+- l'envoi OTP via logging, e-mail SMTP ou Telegram ;
 - les tokens JWT RS256 et le JWKS ;
 - le profil partagé : numéro vérifié, nom, langue `fr|en` et `photo_url` ;
 - les statuts globaux `pending_verification`, `active` et `suspended` ;
@@ -46,6 +47,20 @@ OTP_PROVIDER=telegram
 TELEGRAM_BOT_TOKEN=<secret fourni par Portainer>
 OTP_LOG_PLAINTEXT=true
 ```
+
+Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
+`OTP_PROVIDER=email`, ou demander le canal dans la requête OTP :
+
+```json
+{
+  "phone": "+2250700000000",
+  "channel": "email"
+}
+```
+
+Le compte doit avoir une adresse e-mail enregistrée. `diddifreecmr@gmail.com`
+est la boîte expéditrice configurée par défaut ; son mot de passe reste
+uniquement dans Portainer.
 
 Tant que `OTP_LOG_PLAINTEXT=true`, le code est visible dans les logs même avec
 Telegram. Pour le masquer, définir explicitement `OTP_LOG_PLAINTEXT=false`

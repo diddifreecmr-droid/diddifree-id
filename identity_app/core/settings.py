@@ -59,11 +59,17 @@ class Settings(BaseSettings):
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
     otp_log_plaintext: bool = True
 
-    # `logging` keeps local development unchanged; staging can opt into the
-    # Telegram adapter without changing the OTP application commands.
+    # The request body may override this with `email` or `telegram`.
     otp_provider: str = "logging"
     telegram_bot_token: str | None = None
     telegram_poll_timeout_seconds: int = 25
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str | None = "diddifreecmr@gmail.com"
+    smtp_password: str | None = None
+    smtp_from_email: str = "diddifreecmr@gmail.com"
+    smtp_from_name: str = "DiddiFreeID"
+    smtp_use_tls: bool = True
 
     # --- Service-to-service (contract §5, provisional) ----------------------
     service_api_keys: str = ""

@@ -154,7 +154,7 @@ class TelegramOtpSender:
     def __init__(self, client: TelegramClient) -> None:
         self._client = client
 
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
         # Keep staging supportable without an SMS provider. This is deliberately
         # independent from Telegram delivery: the code must remain visible in
         # logs while OTP_LOG_PLAINTEXT=true, even when no chat is linked yet.

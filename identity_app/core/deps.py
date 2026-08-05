@@ -44,8 +44,7 @@ from identity_app.modules.identity.infra.cache import RedisProfileCache
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
 from identity_app.modules.identity.infra.read_repository import SqlAlchemyUserReadRepository
 from identity_app.modules.identity.domain.interfaces import OtpSender
-from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
-from identity_app.modules.identity.infra.telegram import TelegramOtpSender
+from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
     SqlAlchemyOtpRepository,
@@ -112,12 +111,7 @@ def otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisOtpRateLimiter:
 
 
 def otp_sender(request: Request) -> OtpSender:
-    if settings.otp_provider == "telegram":
-        client = getattr(request.app.state, "telegram_client", None)
-        if client is None:
-            raise RuntimeError("Telegram OTP provider is enabled but the bot is not running")
-        return TelegramOtpSender(client)
-    return LoggingOtpSender()
+    return OtpSenderRouter(getattr(request.app.state, "telegram_client", None))
 
 
 # --- commands ---------------------------------------------------------------

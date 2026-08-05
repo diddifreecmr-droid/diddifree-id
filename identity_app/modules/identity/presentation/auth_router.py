@@ -41,7 +41,11 @@ async def register(
     payload: RegisterRequest,
     command: RegisterUser = Depends(register_user_command),
 ) -> dict:
-    return await command(phone=payload.phone, full_name=payload.full_name)
+    return await command(
+        phone=payload.phone,
+        email=str(payload.email) if payload.email else None,
+        full_name=payload.full_name,
+    )
 
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
@@ -50,7 +54,11 @@ async def request_otp(
     request: Request,
     command: RequestOtp = Depends(request_otp_command),
 ) -> dict:
-    return await command(phone=payload.phone, client_ip=_client_ip(request))
+    return await command(
+        phone=payload.phone,
+        channel=payload.channel,
+        client_ip=_client_ip(request),
+    )
 
 
 @router.post("/otp/verify", response_model=AuthenticatedResponse)

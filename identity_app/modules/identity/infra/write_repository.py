@@ -32,6 +32,7 @@ def _user_to_domain(row: orm.UserModel) -> User:
     return User(
         id=row.id,
         phone=row.phone,
+        email=row.email,
         full_name=row.full_name,
         language=UserLanguage(row.language),
         photo_url=row.photo_url,
@@ -58,6 +59,7 @@ class SqlAlchemyUserWriteRepository:
             row = orm.UserModel(
                 id=user.id,
                 phone=user.phone,
+                email=user.email,
                 full_name=user.full_name,
                 language=user.language.value,
                 photo_url=user.photo_url,
@@ -71,6 +73,7 @@ class SqlAlchemyUserWriteRepository:
             self._session.add(row)
         else:
             row.full_name = user.full_name
+            row.email = user.email
             row.language = user.language.value
             row.photo_url = user.photo_url
             row.password_hash = user.password_hash
@@ -100,6 +103,15 @@ class SqlAlchemyUserWriteRepository:
         result = await self._session.execute(
             select(orm.UserModel)
             .where(orm.UserModel.phone == phone)
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        return None if row is None else _user_to_domain(row)
+
+    async def find_by_email(self, email: str) -> User | None:
+        result = await self._session.execute(
+            select(orm.UserModel)
+            .where(orm.UserModel.email == email)
             .execution_options(populate_existing=True),
         )
         row = result.scalar_one_or_none()

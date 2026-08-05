@@ -108,6 +108,7 @@ def can_transition(current: UserStatus, target: UserStatus) -> bool:
 class User:
     id: UUID
     phone: str
+    email: str | None = None
     role: UserRole = UserRole.USER
     status: UserStatus = UserStatus.PENDING_VERIFICATION
     full_name: str | None = None

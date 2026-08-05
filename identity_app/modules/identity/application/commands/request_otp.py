@@ -26,7 +26,13 @@ class RequestOtp:
     sender: OtpSender
     rate_limiter: RedisOtpRateLimiter
 
-    async def __call__(self, *, phone: str, client_ip: str | None = None) -> dict:
+    async def __call__(
+        self,
+        *,
+        phone: str,
+        channel: str | None = None,
+        client_ip: str | None = None,
+    ) -> dict:
         phone = validate_phone(phone)
 
         if client_ip and not await self.rate_limiter.hit_ip(client_ip):
@@ -72,7 +78,7 @@ class RequestOtp:
             # the instant the SMS lands, and `verify_otp` runs on another
             # session that must already see this row.
             await self.otps.commit()
-            await self.sender.send(phone, code)
+            await self.sender.send(phone, code, channel)
 
         await self.rate_limiter.mark_phone_sent(phone, settings.otp_rate_limit_seconds)
 

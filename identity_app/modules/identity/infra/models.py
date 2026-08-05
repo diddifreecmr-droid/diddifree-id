@@ -22,6 +22,7 @@ class UserModel(Base):
     __tablename__ = "users"
     __table_args__ = (
         Index("idx_users_phone", "phone"),
+        Index("idx_users_email", "email", unique=True),
         # Supports the `?role=driver` filter of `GET /admin/users`.
         Index("idx_users_role", "role"),
         {"schema": "identity"},
@@ -33,6 +34,7 @@ class UserModel(Base):
         server_default=text("uuid_generate_v4()"),
     )
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)

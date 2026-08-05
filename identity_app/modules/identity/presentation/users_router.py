@@ -55,6 +55,8 @@ async def update_me(
     return await command(
         user_id=user_id,
         full_name=payload.full_name,
+        email=str(payload.email) if payload.email else None,
+        email_provided="email" in payload.model_fields_set,
         language=payload.language,
         photo_url=payload.photo_url,
         photo_url_provided="photo_url" in payload.model_fields_set,

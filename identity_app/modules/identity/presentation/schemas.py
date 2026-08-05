@@ -8,18 +8,34 @@ reshaped a second time here.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+
+EmailAddress = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        to_lower=True,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    ),
+]
 
 
 class RegisterRequest(BaseModel):
     phone: str = Field(examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     full_name: str | None = Field(default=None, max_length=120, examples=["Awa Koné"])
 
 
 class OtpRequestBody(BaseModel):
     phone: str = Field(examples=["+2250700000000"])
+    channel: Literal["email", "telegram"] | None = Field(
+        default=None,
+        description="Canal OTP. Si absent, OTP_PROVIDER est utilisé.",
+    )
 
 
 class OtpVerifyRequest(BaseModel):
@@ -43,6 +59,7 @@ class LogoutRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=120)
+    email: EmailAddress | None = None
     language: Literal["fr", "en"] | None = None
     photo_url: str | None = Field(default=None, max_length=2048)
 
@@ -79,6 +96,7 @@ class KycDecisionRequest(BaseModel):
 class UserProfile(BaseModel):
     id: str
     phone: str
+    email: EmailAddress | None
     full_name: str | None
     language: Literal["fr", "en"]
     photo_url: str | None

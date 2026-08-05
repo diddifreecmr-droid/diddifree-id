@@ -32,7 +32,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     telegram_client: TelegramClient | None = None
     telegram_task: asyncio.Task | None = None
     try:
-        if settings.otp_provider == "telegram":
+        if settings.otp_provider in {"email", "smtp"} and (
+            not settings.smtp_username or not settings.smtp_password
+        ):
+            raise RuntimeError("OTP_PROVIDER=email requires SMTP_USERNAME and SMTP_PASSWORD")
+
+        if settings.otp_provider == "telegram" or settings.telegram_bot_token:
             if not settings.telegram_bot_token:
                 raise RuntimeError("OTP_PROVIDER=telegram requires TELEGRAM_BOT_TOKEN")
             telegram_client = TelegramClient(

@@ -25,7 +25,7 @@ class LoggingOtpSender:
     file, readable by anyone with access to log aggregation.
     """
 
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
         if settings.otp_log_plaintext:
             logger.warning(
                 "OTP stub — en développement, le code pour phone=%s est %s. "

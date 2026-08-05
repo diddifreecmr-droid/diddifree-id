@@ -39,6 +39,9 @@ class UserWriteRepository(Protocol):
     async def find_by_phone(self, phone: str) -> User | None:
         ...
 
+    async def find_by_email(self, email: str) -> User | None:
+        ...
+
     async def record_status_change(self, change: UserStatusChange) -> None:
         """Append to `identity.user_status_history`. Part of the same
         transaction as the status write it documents — an audit trail that can
@@ -139,7 +142,7 @@ class EventPublisher(Protocol):
 
 
 class OtpSender(Protocol):
-    async def send(self, phone: str, code: str) -> None:
+    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
         """Deliver the plaintext code. The code is never stored in clear, so
         this is the only moment it exists outside the user's phone."""
         ...
