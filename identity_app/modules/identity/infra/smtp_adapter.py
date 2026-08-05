@@ -40,8 +40,10 @@ class SmtpOtpSender:
             logger.warning("Aucune adresse e-mail OTP configurée pour phone suffix=%s", phone[-4:])
             return
 
-        if not settings.smtp_username or not settings.smtp_password:
-            raise RuntimeError("OTP_PROVIDER=email requires SMTP_USERNAME and SMTP_PASSWORD")
+        if not settings.smtp_host or not settings.smtp_username or not settings.smtp_password:
+            raise RuntimeError(
+                "OTP_PROVIDER=email requires SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD",
+            )
 
         await asyncio.to_thread(self._send_message, recipient, code)
 

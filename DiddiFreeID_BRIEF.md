@@ -58,9 +58,8 @@ Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
 }
 ```
 
-Le compte doit avoir une adresse e-mail enregistrée. `diddifreecmr@gmail.com`
-est la boîte expéditrice configurée par défaut ; son mot de passe reste
-uniquement dans Portainer.
+Le compte doit avoir une adresse e-mail enregistrée. L'expéditeur prévu est
+`no-reply@diddifree.com`; le serveur SMTP réel doit être fourni dans Portainer.
 
 Tant que `OTP_LOG_PLAINTEXT=true`, le code est visible dans les logs même avec
 Telegram. Pour le masquer, définir explicitement `OTP_LOG_PLAINTEXT=false`
