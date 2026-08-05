@@ -65,11 +65,11 @@ class Settings(BaseSettings):
     telegram_poll_timeout_seconds: int = 25
     # The provider-specific SMTP host must be supplied by Portainer/.env.
     # Keeping it empty avoids silently routing production mail through Gmail.
-    smtp_host: str | None = None
+    smtp_host: str = "smtp.zoho.com"
     smtp_port: int = 587
-    smtp_username: str | None = "no-reply@diddifree.com"
+    smtp_username: str | None = "direction.technique@diddifree.com"
     smtp_password: str | None = None
-    smtp_from_email: str = "no-reply@diddifree.com"
+    smtp_from_email: str = "noreply@diddifree.com"
     smtp_from_name: str = "DiddiFreeID"
     smtp_use_tls: bool = True
 
