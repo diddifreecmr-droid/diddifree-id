@@ -55,6 +55,9 @@ class RequestOtp:
             )
 
         user = await self.users.find_by_phone(phone)
+        selected_channel = channel or settings.otp_provider
+        if selected_channel == "smtp":
+            selected_channel = "email"
 
         # The response is identical whether or not the number is known. Any
         # difference here — a 404, a different delay, another error code —
@@ -63,6 +66,12 @@ class RequestOtp:
         # A caller who requests a code for an unknown number simply never
         # receives one, and `verify` answers the usual `400 OTP_INVALID`.
         if user is not None:
+            if selected_channel == "email" and not user.email:
+                raise ApiError(
+                    409,
+                    "EMAIL_NOT_CONFIGURED",
+                    "Ajoutez une adresse e-mail avant de demander un code par e-mail.",
+                )
             now = datetime.now(UTC)
             code = f"{randbelow(1_000_000):06d}"
             await self.otps.save(
@@ -85,4 +94,5 @@ class RequestOtp:
         return {
             "expires_in_seconds": settings.otp_code_lifetime_seconds,
             "retry_after_seconds": settings.otp_rate_limit_seconds,
+            "channel": selected_channel,
         }

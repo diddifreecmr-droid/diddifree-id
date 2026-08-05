@@ -5,14 +5,16 @@ Frontend/Mobile.
 **Base URL (dev) :** `https://api-dev.diddifree.app/identity/v1`
 **Format :** JSON exclusivement · `Content-Type: application/json`
 **Référence architecture :** `DiddiFreeID_Architecture.md`
-**Version : 1.0** — 2026-07-29
+**Version : 2.0** — 2026-08-05
 **Historique :**
 - *Design* — contrat initial, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. **Aucune rupture** par rapport au contrat de design :
   tout ce qui y était publié se comporte comme annoncé. Les mentions « **Implémentation :** » signalent
   soit des routes nouvelles, soit des champs additifs, soit des précisions sur des cas que le design
   laissait sans réponse.
-- *v2 — à venir.* Voir la section 5.
+- **v2.0 (2026-08-05)** — ajout du canal OTP e-mail alternatif, du champ e-mail dans le profil et de
+  la confirmation du canal effectif dans la réponse OTP. Cette évolution est additive : les routes
+  restent sous `/identity/v1` jusqu'à l'introduction d'une rupture incompatible.
 
 Ce document est un **contrat**. Toute évolution incompatible sera versionnée (`/v2`), jamais poussée en
 silence sur `/v1`. Les conventions (format d'erreur, codes HTTP, pagination) reprennent volontairement
@@ -107,7 +109,7 @@ destinataire disponible pour le canal OTP `email` et apparaît dans le profil.
 
 **Requête**
 ```json
-{ "phone": "+2250700000000", "full_name": "Awa Koné" }
+{ "phone": "+2250700000000", "email": "awa@example.com", "full_name": "Awa Koné" }
 ```
 Pas de champ `role` ici, contrairement à DiddiGo — le rôle par défaut est `"user"`. Un module (ex. Ride)
 qui a besoin qu'un utilisateur devienne `driver` appelle `PATCH /users/{id}/role` (section 3) après
@@ -126,16 +128,24 @@ sa propre logique de qualification et déclenche le changement de rôle via l'AP
 
 ### `POST /auth/otp/request`
 
-**Canal facultatif** : `channel` accepte `email` ou `telegram`. S'il est
-absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal `email`
-nécessite une adresse e-mail enregistrée sur le compte. Quel que soit le
-canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
+**Canal facultatif** : `channel` accepte `email` ou `telegram`. Le frontend
+devrait l'envoyer explicitement pour que le choix de livraison soit clair.
+S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
+`email` nécessite une adresse e-mail enregistrée sur le compte. Quel que soit
+le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 
-**Requête** : `{ "phone": "+2250700000000" }`
+**Requête e-mail** : `{ "phone": "+2250700000000", "channel": "email" }`
 
-**Réponse `200`** : `{ "expires_in_seconds": 300, "retry_after_seconds": 60 }`
+**Requête Telegram** : `{ "phone": "+2250700000000", "channel": "telegram" }`
 
-**Erreurs** : `429` (`OTP_RATE_LIMITED`, avec `details.retry_after_seconds`)
+**Réponse `200`** :
+`{ "expires_in_seconds": 300, "retry_after_seconds": 60, "channel": "email" }`
+
+`channel` vaut `email`, `telegram` ou `logging` (ce dernier uniquement pour le
+mode développement/staging sans transport configuré).
+
+**Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si `channel=email` sans adresse e-mail),
+`429` (`OTP_RATE_LIMITED`, avec `details.retry_after_seconds`)
 
 **Implémentation — la réponse est identique pour un numéro connu et un numéro inconnu.** Aucun SMS n'est envoyé dans
 le second cas, mais le corps, le code HTTP et le cooldown sont les mêmes. Toute différence ferait de cette
@@ -282,7 +292,10 @@ ne veut pas le maintenir en cache lui-même.
 {
   "id": "b3e1...",
   "phone": "+2250700000000",
+  "email": "awa@example.com",
   "full_name": "Awa Koné",
+  "language": "fr",
+  "photo_url": null,
   "role": "user",
   "status": "active",
   "requested_role": null
@@ -306,6 +319,7 @@ moment). Ces champs peuvent être modifiés avec le nom.
 
 ```json
 {
+  "email": "awa.new@example.com",
   "language": "en",
   "photo_url": "https://cdn.example.com/profile.jpg"
 }
@@ -519,7 +533,7 @@ while True:
 
 ---
 
-## 5. Ce qui n'est volontairement pas encore dans ce contrat — cible v2
+## 5. Ce qui n'est volontairement pas encore dans ce contrat — futures versions
 
 Rien de ce qui suit ne bloque un module qui intègre la v1.0. Le tableau détaillé des déclencheurs est en
 section 10 de l'architecture.

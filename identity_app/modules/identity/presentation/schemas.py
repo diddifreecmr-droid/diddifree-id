@@ -116,6 +116,7 @@ class RegisterResponse(BaseModel):
 class OtpRequestResponse(BaseModel):
     expires_in_seconds: int
     retry_after_seconds: int
+    channel: Literal["email", "telegram", "logging"]
 
 
 class TokenPairResponse(BaseModel):

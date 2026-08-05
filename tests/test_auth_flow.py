@@ -110,7 +110,20 @@ async def test_otp_request_does_not_reveal_unknown_numbers(client, phone_factory
     r = await client.post(f"{API}/auth/otp/request", json={"phone": unknown})
 
     assert r.status_code == 200
-    assert set(r.json()) == {"expires_in_seconds", "retry_after_seconds"}
+    assert set(r.json()) == {"expires_in_seconds", "retry_after_seconds", "channel"}
+
+
+async def test_email_channel_requires_profile_email(client, phone_factory):
+    phone = phone_factory()
+    await client.post(f"{API}/auth/register", json={"phone": phone})
+
+    r = await client.post(
+        f"{API}/auth/otp/request",
+        json={"phone": phone, "channel": "email"},
+    )
+
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "EMAIL_NOT_CONFIGURED"
 
 
 async def test_refresh_rotates_the_token(client, user_session):
