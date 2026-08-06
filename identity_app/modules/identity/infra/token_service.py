@@ -53,15 +53,23 @@ class TokenService:
 
     # --- access tokens -----------------------------------------------------
 
-    def issue_access_token(self, *, user_id: UUID, role: str, status: str) -> str:
+    def issue_access_token(
+        self,
+        *,
+        user_id: UUID,
+        role: str,
+        status: str,
+        lifetime_minutes: int | None = None,
+    ) -> str:
         now = datetime.now(UTC)
+        lifetime = lifetime_minutes or settings.jwt_access_lifetime_minutes
         payload = {
             "sub": str(user_id),
             "role": role,
             "status": status,
             "iss": settings.jwt_issuer,
             "iat": now,
-            "exp": now + timedelta(minutes=settings.jwt_access_lifetime_minutes),
+            "exp": now + timedelta(minutes=lifetime),
         }
         return jwt.encode(
             payload,

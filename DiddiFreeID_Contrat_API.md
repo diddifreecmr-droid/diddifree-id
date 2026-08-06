@@ -379,6 +379,12 @@ déjà.
 
 ## 3. Administration (réservé `role=admin`)
 
+Le premier compte administrateur est un bootstrap d'exploitation, pas une
+route HTTP. Il est créé avec `scripts/create_admin.py` depuis le conteneur
+backend ou un environnement local relié à la base et aux clés RS256. Le script
+émet ensuite un access token `role=admin` à durée courte ; il ne stocke jamais
+le token.
+
 ### `GET /admin/users?role=driver&status=active&page=1&page_size=20`
 
 Liste paginée, filtrable. Réponse au format pagination standard :

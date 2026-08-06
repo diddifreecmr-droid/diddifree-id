@@ -41,6 +41,25 @@ Les chemins des clés sont fixes dans le conteneur : `/app/keys/private.pem` et
 `/app/keys/public.pem`. Ils sont générés automatiquement au premier démarrage
 et ne sont pas exposés dans les variables d'environnement de Portainer.
 
+### Bootstrap d'un administrateur
+
+Le premier administrateur se crée depuis la console backend, jamais via une
+route HTTP publique. En local :
+
+```bash
+python scripts/create_admin.py \
+  --phone +2250700000000 \
+  --email admin@diddifree.com \
+  --name "DiddiFree Admin" \
+  --minutes 60
+```
+
+Dans Portainer, ouvrir la console du conteneur `app` et exécuter la même
+commande. Le script crée l'utilisateur en `role=admin`, `status=active`, puis
+affiche une seule fois `admin_token=...`. Le token n'est pas enregistré en
+base ni dans Git. Pour promouvoir un utilisateur existant, ajouter
+explicitement `--promote-existing`.
+
 Pour les interfaces de test, définir `CORS_ALLOWED_ORIGINS` dans la stack
 Portainer avec les origines exactes séparées par des virgules, par exemple
 `http://localhost:3000,http://localhost:5173`.
