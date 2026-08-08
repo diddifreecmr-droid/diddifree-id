@@ -70,7 +70,9 @@ doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
 `telegram_chat_id` à son compte et envoie les codes suivants dans ce chat.
 
 L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
-de Portainer. Une requête peut choisir explicitement `"channel": "email"` ou
+de Portainer. Un compte peut être créé et connecté avec `phone`, `email`, ou
+les deux ; chaque requête OTP doit fournir exactement un identifiant. Une
+requête peut choisir explicitement `"channel": "email"` ou
 `"channel": "telegram"`. Dans les deux cas, `OTP_LOG_PLAINTEXT=true` garde le
 code visible dans les logs ; `false` le masque.
 
@@ -278,8 +280,8 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
 |---|---|---|
 | Auth service-à-service (contrat §5, « à trancher ») | Les deux formes sont implémentées : en-tête `X-Service-Key` (`SERVICE_API_KEYS`) et token `role=service` (`scripts/issue_service_token.py`) | Le choix dépend du modèle réseau retenu avec l'équipe Infra. Livrer les deux évite de bloquer les modules en attendant, et l'une se désactive par configuration |
 | `PATCH /users/{id}/role` | Ouvert aux services **et** aux admins | Le contrat le range en §3 « réservé `role=admin` » mais son texte dit qu'un module backend l'appelle. Les deux lectures sont satisfaites |
-| `POST /auth/otp/verify` sur un numéro sans compte | `404 USER_NOT_FOUND` | La création de compte appartient à `/auth/register`. En créer un ici contournerait le `409` sur doublon et produirait des comptes sans `full_name` |
-| `POST /auth/otp/request` sur un numéro inconnu | `200`, identique à un numéro connu, cooldown armé quand même | Toute différence transforme la route en oracle « cette personne est-elle chez DiddiFree » |
+| `POST /auth/otp/verify` sur un identifiant sans compte | `404 USER_NOT_FOUND` | La création de compte appartient à `/auth/register`. En créer un ici contournerait le `409` sur doublon et produirait des comptes sans `full_name` |
+| `POST /auth/otp/request` sur un identifiant inconnu | `200`, identique à un identifiant connu, cooldown armé quand même | Toute différence transforme la route en oracle « cette personne est-elle chez DiddiFree » |
 | Réutilisation d'un refresh token déjà tourné | `401` **et** révocation de toutes les sessions de l'utilisateur | Fuite et retry client sont indistinguables ici ; réémettre donnerait une vie illimitée à un token volé |
 | Hachage des codes OTP | HMAC-SHA256 avec un poivre serveur, pas un SHA-256 nu | Un code à 6 chiffres a un million de valeurs : un hash nu se renverse instantanément à partir d'un dump. Le poivre vit en configuration, pas en base |
 | Suspension d'un compte | Révoque immédiatement tous ses refresh tokens | Sinon la suspension n'agit qu'au bout des 15 min du JWT courant |

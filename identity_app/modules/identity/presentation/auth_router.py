@@ -56,6 +56,7 @@ async def request_otp(
 ) -> dict:
     return await command(
         phone=payload.phone,
+        email=str(payload.email) if payload.email else None,
         channel=payload.channel,
         client_ip=_client_ip(request),
     )
@@ -66,7 +67,12 @@ async def verify_otp(
     payload: OtpVerifyRequest,
     command: VerifyOtp = Depends(verify_otp_command),
 ) -> dict:
-    return await command(phone=payload.phone, code=payload.code, device_info=payload.device_info)
+    return await command(
+        phone=payload.phone,
+        email=str(payload.email) if payload.email else None,
+        code=payload.code,
+        device_info=payload.device_info,
+    )
 
 
 @router.post("/refresh", response_model=TokenPairResponse)

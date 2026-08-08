@@ -16,7 +16,7 @@ class DomainEvent:
     """Base envelope: the four fields every subscriber can rely on."""
 
     user_id: UUID
-    phone: str
+    phone: str | None
     role: str
     at: datetime = field(default_factory=_now)
 

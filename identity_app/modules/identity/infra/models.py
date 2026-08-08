@@ -33,7 +33,7 @@ class UserModel(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
-    phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
@@ -63,6 +63,7 @@ class OtpCodeModel(Base):
     __tablename__ = "otp_codes"
     __table_args__ = (
         Index("idx_otp_phone", "phone"),
+        Index("idx_otp_email", "email"),
         {"schema": "identity"},
     )
 
@@ -71,7 +72,8 @@ class OtpCodeModel(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
-    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

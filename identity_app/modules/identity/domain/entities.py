@@ -107,7 +107,7 @@ def can_transition(current: UserStatus, target: UserStatus) -> bool:
 @dataclass
 class User:
     id: UUID
-    phone: str
+    phone: str | None
     email: str | None = None
     role: UserRole = UserRole.USER
     status: UserStatus = UserStatus.PENDING_VERIFICATION
@@ -141,7 +141,8 @@ class OtpCode:
     """
 
     id: UUID
-    phone: str
+    phone: str | None
+    email: str | None
     code_hash: str
     expires_at: datetime
     created_at: datetime

@@ -159,6 +159,7 @@ class SqlAlchemyOtpRepository:
             orm.OtpCodeModel(
                 id=otp.id,
                 phone=otp.phone,
+                email=otp.email,
                 code_hash=otp.code_hash,
                 expires_at=otp.expires_at,
                 consumed_at=otp.consumed_at,
@@ -169,11 +170,12 @@ class SqlAlchemyOtpRepository:
         await self._session.flush()
         return otp
 
-    async def find_latest_active(self, phone: str) -> OtpCode | None:
+    async def find_latest_active(self, phone: str | None, email: str | None) -> OtpCode | None:
+        identifier_filter = orm.OtpCodeModel.phone == phone if phone else orm.OtpCodeModel.email == email
         result = await self._session.execute(
             select(orm.OtpCodeModel)
             .where(
-                orm.OtpCodeModel.phone == phone,
+                identifier_filter,
                 orm.OtpCodeModel.consumed_at.is_(None),
             )
             .order_by(orm.OtpCodeModel.created_at.desc())
@@ -186,6 +188,7 @@ class SqlAlchemyOtpRepository:
         return OtpCode(
             id=row.id,
             phone=row.phone,
+            email=row.email,
             code_hash=row.code_hash,
             expires_at=row.expires_at,
             created_at=row.created_at,

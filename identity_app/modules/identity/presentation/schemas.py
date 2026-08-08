@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
-
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 EmailAddress = Annotated[
     str,
@@ -25,26 +24,46 @@ EmailAddress = Annotated[
 
 
 class RegisterRequest(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
     email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     full_name: str | None = Field(default=None, max_length=120, examples=["Awa Koné"])
 
+    @model_validator(mode="after")
+    def require_identifier(self) -> RegisterRequest:
+        if not self.phone and not self.email:
+            raise ValueError("phone ou email requis")
+        return self
+
 
 class OtpRequestBody(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     channel: Literal["email", "telegram"] | None = Field(
         default=None,
         description="Canal OTP. Si absent, OTP_PROVIDER est utilisé.",
     )
 
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> OtpRequestBody:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un identifiant phone ou email requis")
+        return self
+
 
 class OtpVerifyRequest(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     # Exactly six digits. Enforced here so a malformed code is a `422` on the
     # field rather than a wasted attempt against the counter that protects the
     # real code.
     code: str = Field(pattern=r"^\d{6}$", examples=["482913"])
     device_info: str | None = Field(default=None, max_length=200, examples=["iPhone 13 · iOS 17.4"])
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> OtpVerifyRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un identifiant phone ou email requis")
+        return self
 
 
 class RefreshRequest(BaseModel):
@@ -95,7 +114,7 @@ class KycDecisionRequest(BaseModel):
 
 class UserProfile(BaseModel):
     id: str
-    phone: str
+    phone: str | None
     email: EmailAddress | None
     full_name: str | None
     language: Literal["fr", "en"]
@@ -109,7 +128,7 @@ class UserProfile(BaseModel):
 
 class RegisterResponse(BaseModel):
     user_id: str
-    phone: str
+    phone: str | None
     status: str
 
 

@@ -4,10 +4,10 @@
 
 DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
 
-- l'inscription et la connexion par OTP ;
+- l'inscription et la connexion par OTP via téléphone ou e-mail ;
 - l'envoi OTP via logging, e-mail SMTP ou Telegram ;
 - les tokens JWT RS256 et le JWKS ;
-- le profil partagé : numéro vérifié, nom, langue `fr|en` et `photo_url` ;
+- le profil partagé : numéro éventuellement absent, e-mail, nom, langue `fr|en` et `photo_url` ;
 - les statuts globaux `pending_verification`, `active` et `suspended` ;
 - les rôles globaux de plateforme : `user` et `admin` ;
 - les événements d'identité et la lecture de profil service-to-service.
@@ -30,12 +30,17 @@ avec `409 ROLE_OWNED_BY_MODULE`. Le rôle métier ne doit pas être ajouté au J
 central. Le module propriétaire peut publier un événement métier ou fournir un
 endpoint interne si un autre module doit connaître cette qualification.
 
-## Profil et numéro
+## Profil et identifiants
+
+Un compte peut être créé et connecté avec un numéro, un e-mail, ou les deux.
+Le frontend doit envoyer exactement un identifiant dans chaque demande et
+vérification OTP. Le canal e-mail permet le login sans numéro ; Telegram reste
+réservé aux comptes qui possèdent un numéro lié au compte Telegram.
 
 `PATCH /identity/v1/users/me` permet de modifier le nom, la langue et le lien
 de photo. Une photo peut être supprimée avec `photo_url: null`.
 
-Le numéro est une donnée d'identité vérifiée. Il ne doit pas être changé par le
+Lorsqu'il existe, le numéro est une donnée d'identité vérifiée. Il ne doit pas être changé par le
 PATCH général : il faudra une procédure OTP dédiée sur le nouveau numéro.
 
 ## OTP Telegram staging
@@ -54,6 +59,15 @@ Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
 ```json
 {
   "phone": "+2250700000000",
+  "channel": "email"
+}
+```
+
+Pour un compte sans téléphone, envoyer à la place :
+
+```json
+{
+  "email": "user@example.com",
   "channel": "email"
 }
 ```

@@ -25,13 +25,20 @@ class LoggingOtpSender:
     file, readable by anyone with access to log aggregation.
     """
 
-    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
+        identifier = phone or email
         if settings.otp_log_plaintext:
             logger.warning(
-                "OTP stub — en développement, le code pour phone=%s est %s. "
+                "OTP stub — en développement, le code pour identifier=%s est %s. "
                 "Intégration SMS à brancher.",
-                phone,
+                identifier,
                 code,
             )
         else:
-            logger.info("OTP émis pour phone=%s (code non journalisé)", phone)
+            logger.info("OTP émis pour identifier=%s (code non journalisé)", identifier)

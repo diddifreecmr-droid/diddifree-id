@@ -14,17 +14,23 @@ class OtpSenderRouter:
         self._email = SmtpOtpSender()
         self._logging = LoggingOtpSender()
 
-    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
         selected = channel or settings.otp_provider
         if selected in {"email", "smtp"}:
-            await self._email.send(phone, code, selected)
+            await self._email.send(phone, code, selected, email)
             return
         if selected == "telegram":
             if self._telegram is None:
                 raise RuntimeError("OTP Telegram demandé mais TELEGRAM_BOT_TOKEN n'est pas configuré")
-            await self._telegram.send(phone, code, selected)
+            await self._telegram.send(phone, code, selected, email)
             return
         if selected == "logging":
-            await self._logging.send(phone, code, selected)
+            await self._logging.send(phone, code, selected, email)
             return
         raise RuntimeError(f"OTP_PROVIDER inconnu : {selected}")

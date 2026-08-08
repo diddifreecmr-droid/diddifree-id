@@ -25,6 +25,36 @@ async def test_register_rejects_malformed_phone(client):
     assert r.json()["error"]["code"] == "INVALID_PHONE_FORMAT"
 
 
+async def test_email_only_registration_and_login(client, otp_code, monkeypatch):
+    from identity_app.core.settings import settings
+
+    monkeypatch.setattr(settings, "otp_provider", "logging")
+    email = "email-only@example.com"
+    r = await client.post(
+        f"{API}/auth/register",
+        json={"email": email, "full_name": "Email Only"},
+    )
+
+    assert r.status_code == 201, r.text
+    assert r.json()["phone"] is None
+
+    r = await client.post(
+        f"{API}/auth/otp/request",
+        json={"email": email},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["channel"] == "logging"
+
+    r = await client.post(
+        f"{API}/auth/otp/verify",
+        json={"email": email, "code": otp_code.latest()},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["email"] == email
+    assert r.json()["user"]["phone"] is None
+
+
 async def test_register_rejects_duplicate_phone(client, phone_factory):
     phone = phone_factory()
     await client.post(f"{API}/auth/register", json={"phone": phone})

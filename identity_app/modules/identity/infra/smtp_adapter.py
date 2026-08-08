@@ -24,20 +24,29 @@ logger = logging.getLogger(__name__)
 
 
 class SmtpOtpSender:
-    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
+        identifier = phone or email
         if settings.otp_log_plaintext:
-            logger.warning("OTP Email - le code pour phone=%s est %s.", phone, code)
+            logger.warning("OTP Email - le code pour identifier=%s est %s.", identifier, code)
         else:
-            logger.info("OTP Email emis pour phone=%s (code non journalise)", phone)
+            logger.info("OTP Email emis pour identifier=%s (code non journalise)", identifier)
 
-        async with async_session_factory() as session:
-            result = await session.execute(
-                select(UserModel.email).where(UserModel.phone == phone),
-            )
-            recipient = result.scalar_one_or_none()
+        recipient = email
+        if recipient is None and phone is not None:
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(UserModel.email).where(UserModel.phone == phone),
+                )
+                recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.warning("Aucune adresse e-mail OTP configurée pour phone suffix=%s", phone[-4:])
+            logger.warning("Aucune adresse e-mail OTP configurée pour identifier=%s", identifier)
             return
 
         if not settings.smtp_host or not settings.smtp_username or not settings.smtp_password:

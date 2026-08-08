@@ -104,13 +104,16 @@ là où la RFC 8615 le place et où toute bibliothèque JWT standard le cherche 
 
 ### `POST /auth/register`
 
-Le champ `email` est facultatif. Lorsqu'il est présent, il devient le
-destinataire disponible pour le canal OTP `email` et apparaît dans le profil.
+`phone` ou `email` est obligatoire. Les deux peuvent être fournis pour un
+compte joignable par les deux identifiants, mais au moins un doit être présent.
+L'e-mail permet aussi un login OTP sans numéro de téléphone.
 
 **Requête**
 ```json
 { "phone": "+2250700000000", "email": "awa@example.com", "full_name": "Awa Koné" }
 ```
+
+Compte e-mail uniquement : `{ "email": "awa@example.com", "full_name": "Awa Koné" }`.
 Pas de champ `role` ici, contrairement à DiddiGo — le rôle par défaut est `"user"`. Un module (ex. Ride)
 qui a besoin qu'un utilisateur devienne `driver` appelle `PATCH /users/{id}/role` (section 3) après
 inscription, une fois son propre processus de qualification (permis, véhicule...) validé. DiddiFreeID ne
@@ -122,19 +125,26 @@ sa propre logique de qualification et déclenche le changement de rôle via l'AP
 { "user_id": "b3e1...", "phone": "+2250700000000", "status": "pending_verification" }
 ```
 
-**Erreurs** : `422` (`INVALID_PHONE_FORMAT`), `409` (`PHONE_ALREADY_REGISTERED`)
+Avec une inscription e-mail uniquement, `phone` vaut `null`.
+
+**Erreurs** : `422` (`INVALID_PHONE_FORMAT` ou `IDENTIFIER_REQUIRED`), `409`
+(`PHONE_ALREADY_REGISTERED` ou `EMAIL_ALREADY_REGISTERED`)
 
 ---
 
 ### `POST /auth/otp/request`
 
-**Canal facultatif** : `channel` accepte `email` ou `telegram`. Le frontend
+**Identifiant** : fournir exactement un `phone` ou un `email`. Le canal
+`email` peut donc être utilisé sans numéro. `channel` accepte `email` ou
+`telegram`. Le frontend
 devrait l'envoyer explicitement pour que le choix de livraison soit clair.
 S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
 `email` nécessite une adresse e-mail enregistrée sur le compte. Quel que soit
 le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 
-**Requête e-mail** : `{ "phone": "+2250700000000", "channel": "email" }`
+**Requête e-mail avec téléphone** : `{ "phone": "+2250700000000", "channel": "email" }`
+
+**Requête e-mail sans téléphone** : `{ "email": "awa@example.com", "channel": "email" }`
 
 **Requête Telegram** : `{ "phone": "+2250700000000", "channel": "telegram" }`
 
@@ -144,24 +154,27 @@ le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 `channel` vaut `email`, `telegram` ou `logging` (ce dernier uniquement pour le
 mode développement/staging sans transport configuré).
 
-**Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si `channel=email` sans adresse e-mail),
-`429` (`OTP_RATE_LIMITED`, avec `details.retry_after_seconds`)
+**Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si un compte téléphone n'a pas
+d'e-mail), `422` (`TELEGRAM_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
+`details.retry_after_seconds`)
 
-**Implémentation — la réponse est identique pour un numéro connu et un numéro inconnu.** Aucun SMS n'est envoyé dans
-le second cas, mais le corps, le code HTTP et le cooldown sont les mêmes. Toute différence ferait de cette
-route un oracle permettant de savoir si une personne donnée est cliente de DiddiFree. Un appelant qui
-demande un code pour un numéro inconnu n'en reçoit simplement jamais, et `verify` lui répondra le
-`400 OTP_INVALID` habituel.
+**Implémentation — la réponse est identique pour un identifiant connu et un identifiant inconnu.** Aucun OTP n'est
+envoyé dans le second cas, mais le corps, le code HTTP et le cooldown sont les mêmes. Toute différence ferait de
+cette route un oracle permettant de savoir si une personne donnée est cliente de DiddiFree. Un appelant qui demande
+un code pour un identifiant inconnu n'en reçoit simplement jamais, et `verify` lui répondra le `400 OTP_INVALID`
+habituel.
 
-**Implémentation — deux limites indépendantes** : une par numéro (le `retry_after_seconds` annoncé) et une par
-adresse IP, plus permissive, qui existe pour arrêter un script balayant une plage de numéros depuis une
+**Implémentation — deux limites indépendantes** : une par identifiant (le `retry_after_seconds` annoncé) et une par
+adresse IP, plus permissive, qui existe pour arrêter un script balayant une plage d'identifiants depuis une
 même machine. Les deux répondent `429 OTP_RATE_LIMITED`.
 
 ---
 
 ### `POST /auth/otp/verify`
 
-**Requête** : `{ "phone": "+2250700000000", "code": "482913" }`
+**Requête téléphone** : `{ "phone": "+2250700000000", "code": "482913" }`
+
+**Requête e-mail** : `{ "email": "awa@example.com", "code": "482913" }`
 
 **Implémentation :** champ optionnel `device_info` (200 caractères max), conservé avec le refresh token pour permettre
 à l'utilisateur d'identifier ses sessions.
@@ -191,7 +204,7 @@ même machine. Les deux répondent `429 OTP_RATE_LIMITED`.
   dernier essai.
 - Une fois le plafond de tentatives atteint, le code est **consommé** : même le bon code ne fonctionne
   plus, il faut en redemander un. Sans cela, le plafond ne ferait que ralentir une attaque.
-- `404 USER_NOT_FOUND` si aucun compte n'existe pour ce numéro. La création de compte appartient à
+- `404 USER_NOT_FOUND` si aucun compte n'existe pour cet identifiant. La création de compte appartient à
   `/auth/register` : en créer un ici contournerait le `409` sur doublon et produirait des comptes sans
   `full_name`.
 - `403 USER_SUSPENDED` si le compte est suspendu.
@@ -325,9 +338,9 @@ moment). Ces champs peuvent être modifiés avec le nom.
 }
 ```
 
-Le numéro reste une donnée d'identité vérifiée. Son changement ne passe pas par
-ce PATCH général : il nécessitera une procédure OTP dédiée sur le nouveau
-numéro.
+Lorsqu'il existe, le numéro reste une donnée d'identité vérifiée. Son changement
+ne passe pas par ce PATCH général : il nécessitera une procédure OTP dédiée sur
+le nouveau numéro.
 
 **Implémentation — nouvelle route.** Modification du profil par l'utilisateur lui-même.
 
@@ -477,7 +490,7 @@ Format d'un événement publié par DiddiFreeID :
 {
   "event": "user.registered",
   "user_id": "b3e1...",
-  "phone": "+2250700000000",
+  "phone": null,
   "role": "user",
   "at": "2026-07-28T10:15:00Z"
 }

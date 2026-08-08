@@ -29,11 +29,16 @@ class RequestOtp:
     async def __call__(
         self,
         *,
-        phone: str,
+        phone: str | None,
+        email: str | None = None,
         channel: str | None = None,
         client_ip: str | None = None,
     ) -> dict:
-        phone = validate_phone(phone)
+        phone = validate_phone(phone) if phone else None
+        email = email.strip().lower() if email else None
+        if bool(phone) == bool(email):
+            raise ApiError(422, "IDENTIFIER_REQUIRED", "Exactement un téléphone ou un e-mail est requis.")
+        identifier = phone or email
 
         if client_ip and not await self.rate_limiter.hit_ip(client_ip):
             raise ApiError(
@@ -43,8 +48,8 @@ class RequestOtp:
                 {"retry_after_seconds": settings.otp_rate_limit_seconds},
             )
 
-        remaining = await self.rate_limiter.seconds_until_phone_allowed(
-            phone, settings.otp_rate_limit_seconds,
+        remaining = await self.rate_limiter.seconds_until_identifier_allowed(
+            identifier, settings.otp_rate_limit_seconds,
         )
         if remaining > 0:
             raise ApiError(
@@ -54,16 +59,18 @@ class RequestOtp:
                 {"retry_after_seconds": remaining},
             )
 
-        user = await self.users.find_by_phone(phone)
+        user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
         selected_channel = channel or settings.otp_provider
         if selected_channel == "smtp":
             selected_channel = "email"
+        if selected_channel == "telegram" and phone is None:
+            raise ApiError(422, "TELEGRAM_REQUIRES_PHONE", "Telegram nécessite un numéro de téléphone.")
 
-        # The response is identical whether or not the number is known. Any
+        # The response is identical whether or not the identifier is known. Any
         # difference here — a 404, a different delay, another error code —
         # turns this endpoint into an oracle for "is this person a DiddiFree
         # user", which is exactly the kind of question an attacker asks first.
-        # A caller who requests a code for an unknown number simply never
+        # A caller who requests a code for an unknown identifier simply never
         # receives one, and `verify` answers the usual `400 OTP_INVALID`.
         if user is not None:
             if selected_channel == "email" and not user.email:
@@ -78,6 +85,7 @@ class RequestOtp:
                 OtpCode(
                     id=OtpCode.new_id(),
                     phone=phone,
+                    email=email,
                     code_hash=hash_otp_code(code),
                     expires_at=now + timedelta(seconds=settings.otp_code_lifetime_seconds),
                     created_at=now,
@@ -87,9 +95,9 @@ class RequestOtp:
             # the instant the SMS lands, and `verify_otp` runs on another
             # session that must already see this row.
             await self.otps.commit()
-            await self.sender.send(phone, code, channel)
+            await self.sender.send(phone, code, channel, email)
 
-        await self.rate_limiter.mark_phone_sent(phone, settings.otp_rate_limit_seconds)
+        await self.rate_limiter.mark_identifier_sent(identifier, settings.otp_rate_limit_seconds)
 
         return {
             "expires_in_seconds": settings.otp_code_lifetime_seconds,

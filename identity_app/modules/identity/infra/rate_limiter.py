@@ -2,8 +2,7 @@
 
 Two independent counters guard `POST /auth/otp/request`:
 
-  * per phone — stops one number being spammed with SMS, which costs real money
-    and lands on a real person's handset;
+  * per identifier — stops one phone number or e-mail address being spammed;
   * per IP — stops one caller enumerating many numbers from a single source.
 
 Redis rather than the database because these keys expire on their own and are
@@ -30,29 +29,29 @@ class RedisOtpRateLimiter:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
 
-    async def seconds_until_phone_allowed(self, phone: str, cooldown_seconds: int) -> int:
-        """Return the remaining cooldown for this phone, 0 if a request is
-        allowed now. Does not consume the allowance — call `mark_phone_sent`
+    async def seconds_until_identifier_allowed(self, identifier: str, cooldown_seconds: int) -> int:
+        """Return the remaining cooldown for this identifier, 0 if a request is
+        allowed now. Does not consume the allowance — call `mark_identifier_sent`
         once the OTP has actually been issued, so a request that fails
         validation later does not lock the user out."""
         if cooldown_seconds <= 0:
             return 0
         try:
-            ttl = await self._redis.ttl(f"identity:otp:cooldown:{phone}")
+            ttl = await self._redis.ttl(f"identity:otp:cooldown:{identifier}")
         except Exception:
             # Fail open. A Redis outage must not make signup impossible; the
             # per-OTP `attempts` counter in PostgreSQL still bounds abuse.
-            logger.warning("rate-limit OTP indisponible (phone), passage en fail-open", exc_info=True)
+            logger.warning("rate-limit OTP indisponible (identifier), passage en fail-open", exc_info=True)
             return 0
         return max(ttl, 0)
 
-    async def mark_phone_sent(self, phone: str, cooldown_seconds: int) -> None:
+    async def mark_identifier_sent(self, identifier: str, cooldown_seconds: int) -> None:
         if cooldown_seconds <= 0:
             return
         try:
-            await self._redis.set(f"identity:otp:cooldown:{phone}", "1", ex=cooldown_seconds)
+            await self._redis.set(f"identity:otp:cooldown:{identifier}", "1", ex=cooldown_seconds)
         except Exception:
-            logger.warning("impossible d'armer le cooldown OTP pour %s", phone, exc_info=True)
+            logger.warning("impossible d'armer le cooldown OTP pour %s", identifier, exc_info=True)
 
     async def hit_ip(self, ip: str) -> bool:
         """Count one request from `ip`. Returns False when over the allowance."""

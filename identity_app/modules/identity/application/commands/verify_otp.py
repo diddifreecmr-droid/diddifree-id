@@ -47,11 +47,21 @@ class VerifyOtp:
     events: EventPublisher
     cache: ProfileCache
 
-    async def __call__(self, *, phone: str, code: str, device_info: str | None = None) -> dict:
-        phone = validate_phone(phone)
+    async def __call__(
+        self,
+        *,
+        phone: str | None,
+        email: str | None = None,
+        code: str,
+        device_info: str | None = None,
+    ) -> dict:
+        phone = validate_phone(phone) if phone else None
+        email = email.strip().lower() if email else None
+        if bool(phone) == bool(email):
+            raise ApiError(422, "IDENTIFIER_REQUIRED", "Exactement un téléphone ou un e-mail est requis.")
         now = datetime.now(UTC)
 
-        otp = await self.otps.find_latest_active(phone)
+        otp = await self.otps.find_latest_active(phone, email)
         if otp is None:
             raise ApiError(400, "OTP_INVALID", "Le code OTP est invalide.")
         if otp.is_expired(now):
@@ -80,13 +90,13 @@ class VerifyOtp:
 
         await self.otps.mark_consumed(otp.id)
 
-        user = await self.users.find_by_phone(phone)
+        user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
         if user is None:
             # Only reachable if the account was deleted between the request and
             # the verification. Account creation belongs to `/auth/register`
             # (contract §1); silently creating one here would produce users with
             # no `full_name` and bypass the 409-on-duplicate rule.
-            raise ApiError(404, "USER_NOT_FOUND", "Aucun compte n'est associé à ce numéro.")
+            raise ApiError(404, "USER_NOT_FOUND", "Aucun compte n'est associé à cet identifiant.")
 
         if user.status == UserStatus.SUSPENDED:
             raise ApiError(403, "USER_SUSPENDED", "Ce compte est suspendu.")

@@ -86,8 +86,8 @@ class OtpRepository(Protocol):
     async def save(self, otp: OtpCode) -> OtpCode:
         ...
 
-    async def find_latest_active(self, phone: str) -> OtpCode | None:
-        """Newest OTP for `phone` that has not been consumed. Expiry is checked
+    async def find_latest_active(self, phone: str | None, email: str | None) -> OtpCode | None:
+        """Newest OTP for one identifier that has not been consumed. Expiry is checked
         by the caller so it can answer `410 OTP_EXPIRED` rather than the
         indistinguishable `400 OTP_INVALID`."""
         ...
@@ -142,7 +142,13 @@ class EventPublisher(Protocol):
 
 
 class OtpSender(Protocol):
-    async def send(self, phone: str, code: str, channel: str | None = None) -> None:
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
         """Deliver the plaintext code. The code is never stored in clear, so
-        this is the only moment it exists outside the user's phone."""
+        this is the only moment it exists outside the user's device."""
         ...
