@@ -41,12 +41,12 @@ class EvolutionWhatsAppOtpSender:
         payload = {
             # Evolution API expects the international number without '+'.
             "number": phone.lstrip("+"),
-            "textMessage": {
-                "text": (
-                    f"Votre code DiddiFreeID est : {code}\n\n"
-                    f"Ce code expire dans {settings.otp_code_lifetime_seconds // 60} minutes."
-                ),
-            },
+            # This instance runs the API version where the text is a top-level
+            # field. The official newer payload uses `textMessage.text`.
+            "text": (
+                f"Votre code DiddiFreeID est : {code}\n\n"
+                f"Ce code expire dans {settings.otp_code_lifetime_seconds // 60} minutes."
+            ),
         }
         headers = {"apikey": settings.evolution_api_key}
 

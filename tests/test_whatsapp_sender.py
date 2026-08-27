@@ -42,9 +42,7 @@ async def test_evolution_sender_posts_otp_to_instance(monkeypatch, caplog):
             "url": "https://evolution.test/message/sendText/diddi-staging",
             "json": {
                 "number": "2250700000000",
-                "textMessage": {
-                    "text": "Votre code DiddiFreeID est : 482913\n\nCe code expire dans 5 minutes.",
-                },
+                "text": "Votre code DiddiFreeID est : 482913\n\nCe code expire dans 5 minutes.",
             },
             "headers": {"apikey": "test-evolution-key"},
             "timeout": 7,
