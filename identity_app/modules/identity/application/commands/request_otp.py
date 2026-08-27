@@ -97,7 +97,14 @@ class RequestOtp:
             # the instant the message arrives, and `verify_otp` runs on another
             # session that must already see this row.
             await self.otps.commit()
-            await self.sender.send(phone, code, channel, email)
+            try:
+                await self.sender.send(phone, code, channel, email)
+            except RuntimeError as exc:
+                raise ApiError(
+                    502,
+                    "OTP_PROVIDER_UNAVAILABLE",
+                    "Le service d'envoi OTP est momentanément indisponible. Réessayez plus tard.",
+                ) from exc
 
         await self.rate_limiter.mark_identifier_sent(identifier, settings.otp_rate_limit_seconds)
 

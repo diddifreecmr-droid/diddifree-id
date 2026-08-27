@@ -50,6 +50,20 @@ class EvolutionWhatsAppOtpSender:
         }
         headers = {"apikey": settings.evolution_api_key}
 
-        async with httpx.AsyncClient(timeout=settings.evolution_api_timeout_seconds) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=settings.evolution_api_timeout_seconds) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                if response.status_code == 400 and "textMessage" in response.text:
+                    # Newer Evolution releases wrap the text in textMessage.
+                    response = await client.post(
+                        url,
+                        json={"number": phone.lstrip("+"), "textMessage": {"text": payload["text"]}},
+                        headers=headers,
+                    )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            provider_response = getattr(exc, "response", None)
+            status = provider_response.status_code if provider_response is not None else "network"
+            body = provider_response.text[:500] if provider_response is not None else str(exc)
+            logger.error("Evolution API WhatsApp failed status=%s body=%s", status, body)
+            raise RuntimeError("Evolution API a refusé l'envoi WhatsApp") from exc

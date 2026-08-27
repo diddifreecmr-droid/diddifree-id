@@ -5,6 +5,9 @@ from identity_app.modules.identity.infra import whatsapp
 
 
 class FakeResponse:
+    status_code = 201
+    text = ""
+
     def raise_for_status(self) -> None:
         return None
 
