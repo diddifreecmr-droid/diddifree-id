@@ -5,7 +5,7 @@ Frontend/Mobile.
 **Base URL (dev) :** `https://api-dev.diddifree.app/identity/v1`
 **Format :** JSON exclusivement · `Content-Type: application/json`
 **Référence architecture :** `DiddiFreeID_Architecture.md`
-**Version : 2.0** — 2026-08-05
+**Version : 2.1** — 2026-08-27
 **Historique :**
 - *Design* — contrat initial, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. **Aucune rupture** par rapport au contrat de design :
@@ -15,6 +15,9 @@ Frontend/Mobile.
 - **v2.0 (2026-08-05)** — ajout du canal OTP e-mail alternatif, du champ e-mail dans le profil et de
   la confirmation du canal effectif dans la réponse OTP. Cette évolution est additive : les routes
   restent sous `/identity/v1` jusqu'à l'introduction d'une rupture incompatible.
+- **v2.1 (2026-08-27)** — ajout du canal OTP WhatsApp via Evolution API pour le staging. Cette
+  évolution est additive : le canal officiel WhatsApp pourra remplacer Evolution API sans changer
+  le contrat frontend.
 
 Ce document est un **contrat**. Toute évolution incompatible sera versionnée (`/v2`), jamais poussée en
 silence sur `/v1`. Les conventions (format d'erreur, codes HTTP, pagination) reprennent volontairement
@@ -135,8 +138,8 @@ Avec une inscription e-mail uniquement, `phone` vaut `null`.
 ### `POST /auth/otp/request`
 
 **Identifiant** : fournir exactement un `phone` ou un `email`. Le canal
-`email` peut donc être utilisé sans numéro. `channel` accepte `email` ou
-`telegram`. Le frontend
+`email` peut donc être utilisé sans numéro. `channel` accepte `email`,
+`telegram` ou `whatsapp`. Le frontend
 devrait l'envoyer explicitement pour que le choix de livraison soit clair.
 S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
 `email` nécessite une adresse e-mail enregistrée sur le compte. Quel que soit
@@ -148,14 +151,16 @@ le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 
 **Requête Telegram** : `{ "phone": "+2250700000000", "channel": "telegram" }`
 
+**Requête WhatsApp** : `{ "phone": "+2250700000000", "channel": "whatsapp" }`
+
 **Réponse `200`** :
 `{ "expires_in_seconds": 300, "retry_after_seconds": 60, "channel": "email" }`
 
-`channel` vaut `email`, `telegram` ou `logging` (ce dernier uniquement pour le
+`channel` vaut `email`, `telegram`, `whatsapp` ou `logging` (ce dernier uniquement pour le
 mode développement/staging sans transport configuré).
 
 **Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si un compte téléphone n'a pas
-d'e-mail), `422` (`TELEGRAM_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
+d'e-mail), `422` (`TELEGRAM_REQUIRES_PHONE` ou `WHATSAPP_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
 `details.retry_after_seconds`)
 
 **Implémentation — la réponse est identique pour un identifiant connu et un identifiant inconnu.** Aucun OTP n'est

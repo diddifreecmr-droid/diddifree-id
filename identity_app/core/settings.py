@@ -59,8 +59,12 @@ class Settings(BaseSettings):
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
     otp_log_plaintext: bool = True
 
-    # The request body may override this with `email` or `telegram`.
+    # The request body may override this with `email`, `telegram` or `whatsapp`.
     otp_provider: str = "logging"
+    evolution_api_url: str | None = None
+    evolution_api_key: str | None = None
+    evolution_instance: str | None = None
+    evolution_api_timeout_seconds: int = 20
     telegram_bot_token: str | None = None
     telegram_poll_timeout_seconds: int = 25
     # The provider-specific SMTP host must be supplied by Portainer/.env.

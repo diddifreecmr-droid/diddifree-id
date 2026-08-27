@@ -38,7 +38,7 @@ class RegisterRequest(BaseModel):
 class OtpRequestBody(BaseModel):
     phone: str | None = Field(default=None, examples=["+2250700000000"])
     email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
-    channel: Literal["email", "telegram"] | None = Field(
+    channel: Literal["email", "telegram", "whatsapp"] | None = Field(
         default=None,
         description="Canal OTP. Si absent, OTP_PROVIDER est utilisé.",
     )
@@ -135,7 +135,7 @@ class RegisterResponse(BaseModel):
 class OtpRequestResponse(BaseModel):
     expires_in_seconds: int
     retry_after_seconds: int
-    channel: Literal["email", "telegram", "logging"]
+    channel: Literal["email", "telegram", "whatsapp", "logging"]
 
 
 class TokenPairResponse(BaseModel):

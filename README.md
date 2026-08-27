@@ -72,9 +72,12 @@ doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
 L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
 de Portainer. Un compte peut être créé et connecté avec `phone`, `email`, ou
 les deux ; chaque requête OTP doit fournir exactement un identifiant. Une
-requête peut choisir explicitement `"channel": "email"` ou
-`"channel": "telegram"`. Dans les deux cas, `OTP_LOG_PLAINTEXT=true` garde le
-code visible dans les logs ; `false` le masque.
+requête peut choisir explicitement `"channel": "email"`, `"channel":
+"telegram"` ou `"channel": "whatsapp"`. WhatsApp utilise Evolution API avec
+`EVOLUTION_API_URL`, `EVOLUTION_API_KEY` et `EVOLUTION_INSTANCE` dans Portainer.
+Telegram et WhatsApp nécessitent un numéro de téléphone. Dans tous les cas,
+`OTP_LOG_PLAINTEXT=true` garde le code visible dans les logs ; `false` le
+masque.
 
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur

@@ -6,6 +6,7 @@ from identity_app.core.settings import settings
 from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
 from identity_app.modules.identity.infra.smtp_adapter import SmtpOtpSender
 from identity_app.modules.identity.infra.telegram import TelegramOtpSender
+from identity_app.modules.identity.infra.whatsapp import EvolutionWhatsAppOtpSender
 
 
 class OtpSenderRouter:
@@ -13,6 +14,7 @@ class OtpSenderRouter:
         self._telegram = TelegramOtpSender(telegram_client) if telegram_client is not None else None
         self._email = SmtpOtpSender()
         self._logging = LoggingOtpSender()
+        self._whatsapp = EvolutionWhatsAppOtpSender()
 
     async def send(
         self,
@@ -29,6 +31,9 @@ class OtpSenderRouter:
             if self._telegram is None:
                 raise RuntimeError("OTP Telegram demandé mais TELEGRAM_BOT_TOKEN n'est pas configuré")
             await self._telegram.send(phone, code, selected, email)
+            return
+        if selected == "whatsapp":
+            await self._whatsapp.send(phone, code, selected, email)
             return
         if selected == "logging":
             await self._logging.send(phone, code, selected, email)

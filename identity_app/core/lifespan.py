@@ -18,8 +18,8 @@ from fastapi import FastAPI
 from identity_app.core.database import ping_db
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
-from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.telegram import TelegramBotWorker, TelegramClient
+from identity_app.modules.identity.infra.token_service import TokenService
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ):
             raise RuntimeError(
                 "OTP_PROVIDER=email requires SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD",
+            )
+
+        if settings.otp_provider == "whatsapp" and (
+            not settings.evolution_api_url
+            or not settings.evolution_api_key
+            or not settings.evolution_instance
+        ):
+            raise RuntimeError(
+                "OTP_PROVIDER=whatsapp requires EVOLUTION_API_URL, EVOLUTION_API_KEY and EVOLUTION_INSTANCE",
             )
 
         if settings.otp_provider == "telegram" or settings.telegram_bot_token:

@@ -65,6 +65,8 @@ class RequestOtp:
             selected_channel = "email"
         if selected_channel == "telegram" and phone is None:
             raise ApiError(422, "TELEGRAM_REQUIRES_PHONE", "Telegram nécessite un numéro de téléphone.")
+        if selected_channel == "whatsapp" and phone is None:
+            raise ApiError(422, "WHATSAPP_REQUIRES_PHONE", "WhatsApp nécessite un numéro de téléphone.")
 
         # The response is identical whether or not the identifier is known. Any
         # difference here — a 404, a different delay, another error code —
@@ -92,7 +94,7 @@ class RequestOtp:
                 ),
             )
             # Commit before the code leaves the process: the user can submit it
-            # the instant the SMS lands, and `verify_otp` runs on another
+            # the instant the message arrives, and `verify_otp` runs on another
             # session that must already see this row.
             await self.otps.commit()
             await self.sender.send(phone, code, channel, email)

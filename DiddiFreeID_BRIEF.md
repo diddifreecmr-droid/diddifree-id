@@ -5,7 +5,7 @@
 DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
 
 - l'inscription et la connexion par OTP via téléphone ou e-mail ;
-- l'envoi OTP via logging, e-mail SMTP ou Telegram ;
+- l'envoi OTP via logging, e-mail SMTP, Telegram ou WhatsApp Evolution API ;
 - les tokens JWT RS256 et le JWKS ;
 - le profil partagé : numéro éventuellement absent, e-mail, nom, langue `fr|en` et `photo_url` ;
 - les statuts globaux `pending_verification`, `active` et `suspended` ;
@@ -34,8 +34,8 @@ endpoint interne si un autre module doit connaître cette qualification.
 
 Un compte peut être créé et connecté avec un numéro, un e-mail, ou les deux.
 Le frontend doit envoyer exactement un identifiant dans chaque demande et
-vérification OTP. Le canal e-mail permet le login sans numéro ; Telegram reste
-réservé aux comptes qui possèdent un numéro lié au compte Telegram.
+vérification OTP. Le canal e-mail permet le login sans numéro ; Telegram et
+WhatsApp restent réservés aux demandes qui fournissent un numéro de téléphone.
 
 `PATCH /identity/v1/users/me` permet de modifier le nom, la langue et le lien
 de photo. Une photo peut être supprimée avec `photo_url: null`.
