@@ -22,11 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from identity_app.core.database import get_session
 from identity_app.core.redis import get_redis  # noqa: F401 — re-exported
-from identity_app.core.settings import settings
 from identity_app.modules.identity.application.commands import (
     ChangeRole,
     ChangeStatus,
     DecideKyc,
+    IssueServiceToken,
     Logout,
     RefreshAccessToken,
     RegisterUser,
@@ -40,11 +40,12 @@ from identity_app.modules.identity.application.queries import (
     GetUserById,
     ListUsers,
 )
+from identity_app.modules.identity.domain.interfaces import OtpSender
 from identity_app.modules.identity.infra.cache import RedisProfileCache
+from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
 from identity_app.modules.identity.infra.read_repository import SqlAlchemyUserReadRepository
-from identity_app.modules.identity.domain.interfaces import OtpSender
-from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
+from identity_app.modules.identity.infra.service_client_repository import SqlAlchemyServiceClientRepository
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
     SqlAlchemyOtpRepository,
@@ -88,6 +89,12 @@ async def refresh_token_repo(
     session: AsyncSession = Depends(session_dep),
 ) -> SqlAlchemyRefreshTokenRepository:
     return SqlAlchemyRefreshTokenRepository(session)
+
+
+async def service_client_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyServiceClientRepository:
+    return SqlAlchemyServiceClientRepository(session)
 
 
 # --- read repositories (queries only) --------------------------------------
@@ -161,6 +168,13 @@ def logout_command(
     refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
 ) -> Logout:
     return Logout(refresh_tokens=refresh_tokens)
+
+
+def issue_service_token_command(
+    clients: SqlAlchemyServiceClientRepository = Depends(service_client_repo),
+    tokens: TokenService = Depends(get_token_service),
+) -> IssueServiceToken:
+    return IssueServiceToken(clients=clients, tokens=tokens)
 
 
 def update_profile_command(

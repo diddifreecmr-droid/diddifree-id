@@ -12,8 +12,8 @@ from uuid import UUID
 
 from identity_app.core.errors import ApiError
 from identity_app.modules.identity.application.payloads import profile_payload
-from identity_app.modules.identity.domain.events import UserUpdated
 from identity_app.modules.identity.domain.entities import UserLanguage
+from identity_app.modules.identity.domain.events import UserUpdated
 from identity_app.modules.identity.domain.interfaces import (
     EventPublisher,
     ProfileCache,

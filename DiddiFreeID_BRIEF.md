@@ -15,6 +15,15 @@ DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
 Chaque module vérifie les JWT localement avec le JWKS. Il ne doit pas appeler
 Auth à chaque requête simplement pour vérifier un token.
 
+Pour les appels backend, les nouveaux clients utilisent
+`POST /identity/v1/auth/service/token` avec `client_credentials` et
+`audience=diddifree-id`. Le client est
+enregistré côté DiddiFreeID avec un secret hashé, une audience et des scopes
+autorisés. Le JWT service est court (600 secondes par défaut) ; le consommateur
+vérifie localement la signature via JWKS, `iss`, `exp`, `aud` et les scopes.
+Les appels utilisent aussi `X-Client-ID`, qui doit correspondre au claim
+`client_id`. `X-Service-Key` reste uniquement pour la compatibilité legacy.
+
 ## Rôles métier
 
 Les rôles métier ne sont pas centralisés dans Auth :

@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from secrets import token_urlsafe
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 
@@ -80,6 +80,38 @@ class TokenService:
             headers={"kid": self._key_ring.active_kid},
         )
 
+    def issue_service_token(
+        self,
+        *,
+        service_name: str,
+        client_id: str,
+        audience: str,
+        scopes: tuple[str, ...],
+        lifetime_seconds: int,
+    ) -> str:
+        """Issue a short-lived machine token without changing user tokens."""
+        now = datetime.now(UTC)
+        payload = {
+            "sub": f"service:{service_name}",
+            "role": SERVICE_ROLE,
+            "status": "active",
+            "service": service_name,
+            "client_id": client_id,
+            "token_type": "service",
+            "aud": audience,
+            "scope": " ".join(scopes),
+            "jti": str(uuid4()),
+            "iss": settings.jwt_issuer,
+            "iat": now,
+            "exp": now + timedelta(seconds=lifetime_seconds),
+        }
+        return jwt.encode(
+            payload,
+            self._key_ring.private_pem,
+            algorithm=ALGORITHM,
+            headers={"kid": self._key_ring.active_kid},
+        )
+
     def decode_access_token(self, token: str) -> dict:
         """Verify a token against the published keys.
 
@@ -104,12 +136,32 @@ class TokenService:
                 entry.pem,
                 algorithms=[ALGORITHM],
                 issuer=settings.jwt_issuer,
-                options={"require": ["exp", "iat", "sub", "role"]},
+                # Service tokens carry `aud`; the generic decoder verifies the
+                # signature and issuer, while route-specific dependencies check
+                # the expected audience and scopes.
+                options={"require": ["exp", "iat", "sub", "role"], "verify_aud": False},
             )
         except jwt.ExpiredSignatureError as exc:
             raise ApiError(401, "TOKEN_EXPIRED", "Le token a expiré.") from exc
         except jwt.InvalidTokenError as exc:
             raise ApiError(401, "TOKEN_INVALID", f"Token invalide : {exc}") from exc
+
+    def decode_service_token(
+        self,
+        token: str,
+        *,
+        audience: str,
+        required_scopes: set[str] | frozenset[str] = frozenset(),
+    ) -> dict:
+        claims = self.decode_access_token(token)
+        if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+            raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+        if claims.get("aud") != audience:
+            raise ApiError(403, "SERVICE_AUDIENCE_INVALID", "Audience du token service invalide.")
+        token_scopes = set(str(claims.get("scope", "")).split())
+        if not required_scopes.issubset(token_scopes):
+            raise ApiError(403, "SERVICE_SCOPE_INVALID", "Scopes insuffisants pour cette opération.")
+        return claims
 
     # --- refresh tokens ----------------------------------------------------
 

@@ -11,7 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -161,5 +162,38 @@ class UserStatusHistoryModel(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class ServiceClientModel(Base):
+    """Machine credentials; the plaintext secret is never persisted."""
+
+    __tablename__ = "service_clients"
+    __table_args__ = (
+        Index("uq_service_clients_client_id", "client_id", unique=True),
+        Index("idx_service_clients_service_environment", "service_name", "environment"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    client_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    service_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    environment: Mapped[str] = mapped_column(String(30), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    allowed_audiences: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    allowed_scopes: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )

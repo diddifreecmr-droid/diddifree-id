@@ -22,8 +22,10 @@ dependencies = [
     # Argon2id for back-office passwords (architecture §8 — explicitly not bcrypt).
     "argon2-cffi>=23.1",
     "httpx>=0.27",
+    "python-multipart>=0.0.9",
     "redis[hiredis]>=5.0",
     "alembic>=1.13",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

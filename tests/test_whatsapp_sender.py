@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from identity_app.core.settings import settings
 from identity_app.modules.identity.infra import whatsapp
 
@@ -29,16 +31,33 @@ class FakeAsyncClient:
         return FakeResponse()
 
 
-async def test_evolution_sender_posts_otp_to_instance(monkeypatch, caplog):
-    FakeAsyncClient.calls = []
-    monkeypatch.setattr(whatsapp.httpx, "AsyncClient", FakeAsyncClient)
-    monkeypatch.setattr(settings, "evolution_api_url", "https://evolution.test/")
-    monkeypatch.setattr(settings, "evolution_api_key", "test-evolution-key")
-    monkeypatch.setattr(settings, "evolution_instance", "diddi-staging")
-    monkeypatch.setattr(settings, "evolution_api_timeout_seconds", 7)
-    monkeypatch.setattr(settings, "otp_log_plaintext", True)
+async def test_evolution_sender_posts_otp_to_instance(monkeypatch):
+    records: list[str] = []
 
-    await whatsapp.EvolutionWhatsAppOtpSender().send("+2250700000000", "482913", "whatsapp")
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    handler = Capture()
+    whatsapp.logger.addHandler(handler)
+    FakeAsyncClient.calls = []
+    previous_disable = logging.root.manager.disable
+    previous_logger_disabled = whatsapp.logger.disabled
+    logging.disable(logging.NOTSET)
+    whatsapp.logger.disabled = False
+    try:
+        monkeypatch.setattr(whatsapp.httpx, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(settings, "evolution_api_url", "https://evolution.test/")
+        monkeypatch.setattr(settings, "evolution_api_key", "test-evolution-key")
+        monkeypatch.setattr(settings, "evolution_instance", "diddi-staging")
+        monkeypatch.setattr(settings, "evolution_api_timeout_seconds", 7)
+        monkeypatch.setattr(settings, "otp_log_plaintext", True)
+
+        await whatsapp.EvolutionWhatsAppOtpSender().send("+2250700000000", "482913", "whatsapp")
+    finally:
+        logging.disable(previous_disable)
+        whatsapp.logger.disabled = previous_logger_disabled
+        whatsapp.logger.removeHandler(handler)
 
     assert FakeAsyncClient.calls == [
         {
@@ -51,4 +70,4 @@ async def test_evolution_sender_posts_otp_to_instance(monkeypatch, caplog):
             "timeout": 7,
         },
     ]
-    assert "482913" in caplog.text
+    assert any("482913" in message for message in records), records

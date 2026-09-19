@@ -92,6 +92,7 @@ async def require_admin(
 
 async def require_service_or_admin(
     request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
     x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     tokens: TokenService = Depends(get_token_service),
@@ -124,6 +125,21 @@ async def require_service_or_admin(
     request.state.claims = claims
 
     if claims.get("role") == SERVICE_ROLE:
+        if claims.get("token_type") == "service":
+            if not x_client_id or x_client_id != claims.get("client_id"):
+                raise ApiError(
+                    401,
+                    "SERVICE_CLIENT_ID_INVALID",
+                    "X-Client-ID ne correspond pas au client du token service.",
+                )
+            required_scope = _required_service_scope(request)
+            if required_scope is None:
+                raise ApiError(403, "SERVICE_SCOPE_INVALID", "Cette route n'a pas de scope service déclaré.")
+            tokens.decode_service_token(
+                credentials.credentials,
+                audience=settings.jwt_issuer,
+                required_scopes={required_scope},
+            )
         return None
 
     try:
@@ -143,3 +159,20 @@ async def require_service_or_admin(
             "Cette route est réservée aux appels service-à-service et aux administrateurs.",
         )
     return user.id
+
+
+def _required_service_scope(request: Request) -> str | None:
+    """Map existing service routes to the scoped-token contract.
+
+    Legacy `role=service` tokens intentionally bypass this map during the
+    migration window. New client-credentials tokens must be explicit.
+    """
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", request.url.path)
+    if request.method == "GET" and route_path.endswith("/users/backfill"):
+        return "users:backfill:read"
+    if request.method == "GET" and route_path.endswith("/users/{user_id}"):
+        return "profile:read"
+    if request.method == "PATCH" and route_path.endswith("/users/{user_id}/role"):
+        return "role:write"
+    return None

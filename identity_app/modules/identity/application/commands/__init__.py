@@ -17,6 +17,7 @@ No command ever calls a query, and no query ever calls a command.
 from identity_app.modules.identity.application.commands.change_role import ChangeRole
 from identity_app.modules.identity.application.commands.change_status import ChangeStatus
 from identity_app.modules.identity.application.commands.decide_kyc import DecideKyc
+from identity_app.modules.identity.application.commands.issue_service_token import IssueServiceToken
 from identity_app.modules.identity.application.commands.logout import Logout
 from identity_app.modules.identity.application.commands.refresh_token import RefreshAccessToken
 from identity_app.modules.identity.application.commands.register_user import RegisterUser
@@ -28,6 +29,7 @@ __all__ = [
     "ChangeRole",
     "ChangeStatus",
     "DecideKyc",
+    "IssueServiceToken",
     "Logout",
     "RefreshAccessToken",
     "RegisterUser",

@@ -7,6 +7,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
       REDIS_URL: redis://redis:6379/0
       APP_HOST_PORT: ${APP_HOST_PORT:-18010}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
       # The keys live in the persistent Docker volume mounted below.
       JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
       JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
@@ -16,6 +18,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-diddifree-id}
       JWT_ACCESS_LIFETIME_MINUTES: ${JWT_ACCESS_LIFETIME_MINUTES:-15}
       REFRESH_TOKEN_LIFETIME_DAYS: ${REFRESH_TOKEN_LIFETIME_DAYS:-30}
+      SERVICE_TOKEN_LIFETIME_SECONDS: ${SERVICE_TOKEN_LIFETIME_SECONDS:-600}
       OTP_CODE_LIFETIME_SECONDS: ${OTP_CODE_LIFETIME_SECONDS:-300}
       OTP_RATE_LIMIT_SECONDS: ${OTP_RATE_LIMIT_SECONDS:-60}
       OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
@@ -43,6 +46,12 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
     ports:
       - "${APP_HOST_PORT:-18010}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       db:
         condition: service_healthy

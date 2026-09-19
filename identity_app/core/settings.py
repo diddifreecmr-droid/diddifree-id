@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     app_name: str = "DiddiFreeID"
     environment: str = "development"
+    log_level: str = "INFO"
+    health_check_timeout_seconds: float = 2.0
     # The API contract states the base URL as `.../identity/v1`, so the prefix
     # carries the module segment too. A gateway that already strips `/identity`
     # can set API_PREFIX=/v1 without a code change.
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
     jwt_issuer: str = "diddifree-id"
     jwt_access_lifetime_minutes: int = 15
     refresh_token_lifetime_days: int = 30
+    service_token_lifetime_seconds: int = 600
 
     # --- OTP ---------------------------------------------------------------
     otp_code_lifetime_seconds: int = 300

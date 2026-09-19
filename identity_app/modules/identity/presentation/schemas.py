@@ -143,6 +143,13 @@ class TokenPairResponse(BaseModel):
     refresh_token: str
 
 
+class ServiceTokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+    scope: str
+
+
 class AuthenticatedResponse(TokenPairResponse):
     user: UserProfile
 

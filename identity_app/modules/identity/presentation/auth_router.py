@@ -5,16 +5,19 @@ a *module* needs happens either locally against the JWKS, or through the routes
 in `users_router` / `admin_router`.
 """
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Form, Header, Request, Response
 
 from identity_app.core.deps import (
+    issue_service_token_command,
     logout_command,
     refresh_token_command,
     register_user_command,
     request_otp_command,
     verify_otp_command,
 )
+from identity_app.core.errors import ApiError
 from identity_app.modules.identity.application.commands import (
+    IssueServiceToken,
     Logout,
     RefreshAccessToken,
     RegisterUser,
@@ -30,10 +33,36 @@ from identity_app.modules.identity.presentation.schemas import (
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
+    ServiceTokenResponse,
     TokenPairResponse,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/service/token", response_model=ServiceTokenResponse)
+async def service_token(
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    grant_type: str = Form(default="client_credentials"),
+    client_id: str = Form(...),
+    client_secret: str = Form(...),
+    audience: str = Form(...),
+    scope: str = Form(...),
+    command: IssueServiceToken = Depends(issue_service_token_command),
+) -> dict:
+    if not x_client_id or x_client_id.strip() != client_id.strip():
+        raise ApiError(
+            401,
+            "SERVICE_CLIENT_ID_INVALID",
+            "X-Client-ID doit correspondre au client_id de la requête.",
+        )
+    return await command(
+        grant_type=grant_type,
+        client_id=client_id,
+        client_secret=client_secret,
+        audience=audience,
+        scope=scope,
+    )
 
 
 @router.post("/register", status_code=201, response_model=RegisterResponse)

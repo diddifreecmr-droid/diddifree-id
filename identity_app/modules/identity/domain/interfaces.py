@@ -24,6 +24,7 @@ from identity_app.modules.identity.domain.entities import (
     UserStatusChange,
 )
 from identity_app.modules.identity.domain.events import DomainEvent
+from identity_app.modules.identity.domain.service_client import ServiceClient
 
 
 class UserWriteRepository(Protocol):
@@ -119,6 +120,11 @@ class RefreshTokenRepository(Protocol):
         ...
 
     async def commit(self) -> None:
+        ...
+
+
+class ServiceClientRepository(Protocol):
+    async def find_by_client_id(self, client_id: str) -> ServiceClient | None:
         ...
 
 

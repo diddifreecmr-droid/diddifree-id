@@ -71,8 +71,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tokens = TokenService()
     app.state.tokens = tokens
     logger.info(
-        "lifespan startup complete (redis=%s, kid actif=%s, kids publiés=[%s])",
-        settings.redis_url,
+        "lifespan startup complete (redis_configured=%s, kid actif=%s, kids publiés=[%s])",
+        bool(settings.redis_url),
         settings.jwt_active_kid,
         ", ".join(tokens.published_kids),
     )

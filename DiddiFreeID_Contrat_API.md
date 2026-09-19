@@ -360,14 +360,48 @@ Réservé aux appels **service-à-service** (pas exposé au frontend directement
 besoin du profil d'un utilisateur autre que celui du token courant (ex. Fund affichant le nom d'un
 porteur de campagne à un investisseur).
 
-**Implémentation — le mécanisme d'authentification, laissé ouvert en v1, est implémenté sous ses deux formes**, en
-attendant l'arbitrage réseau définitif avec l'équipe Infra. Chacune se désactive par configuration :
+**Mécanisme recommandé pour les nouveaux consommateurs :** client credentials via
+`POST /auth/service/token` (URL complète : `/identity/v1/auth/service/token`). La
+réponse contient un JWT RS256 court, limité par `aud` et `scope`.
+
+La requête est `application/x-www-form-urlencoded` :
+
+```text
+grant_type=client_credentials
+X-Client-ID: pilotage-staging-diddifreeid
+client_id=pilotage-staging-diddifreeid
+client_secret=<secret Portainer>
+audience=diddifree-id
+scope=profile:read
+```
+
+Le header `X-Client-ID` est obligatoire et doit correspondre à `client_id`.
+Pilotage utilise un client séparé pour chaque cible :
+`pilotage-staging-diddifreeid` pour `audience=diddifree-id` et
+`pilotage-staging-diddigo` pour `audience=diddigo`, avec le scope
+`ride-summary:read`.
+
+Le token contient notamment `role=service`, `status=active`,
+`token_type=service`, `client_id`, `aud`, `scope`, `jti`, `iat` et `exp`. La durée par défaut est de 600 secondes
+(`SERVICE_TOKEN_LIFETIME_SECONDS`). Le secret est créé avec
+`scripts/create_service_client.py`, hashé en base et affiché une seule fois.
+
+**Compatibilité de migration :** les deux formes historiques restent acceptées
+sur les routes existantes, en attendant leur migration :
 
 1. **En-tête `X-Service-Key`**, comparé à la liste `SERVICE_API_KEYS`.
 2. **Access token portant `role=service`**, émis hors ligne par
    `scripts/issue_service_token.py --service diddi-wallet`. Ces tokens n'ont pas de flux de refresh et
    ne sont pas révocables individuellement : leur expiration est le seul mécanisme qui les retire de la
    circulation, donc durée courte et réémission planifiée.
+
+Les nouveaux consommateurs doivent utiliser le endpoint client credentials et
+demander `audience=diddifree-id`, puis vérifier `iss`, `kid`, signature, `exp`,
+`aud` et les scopes requis localement. Les scopes des routes existantes sont
+`profile:read`, `users:backfill:read` et `role:write`.
+
+La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
+valide jusqu'à son expiration, au maximum 600 secondes par défaut.
 
 Un token d'administrateur est également accepté sur cette route.
 

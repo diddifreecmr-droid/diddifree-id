@@ -15,6 +15,7 @@ Strategy, mirroring DiddiGo's so the two suites feel like one:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -46,6 +47,39 @@ SERVICE_KEY = "test-service-key"
 os.environ.setdefault("SERVICE_API_KEYS", SERVICE_KEY)
 
 API = "/identity/v1"
+
+
+class EventReader:
+    """Read events published after the fixture starts."""
+
+    def __init__(self, redis, last_id: str) -> None:  # noqa: ANN001
+        self._redis = redis
+        self._last_id = last_id
+
+    async def read(self) -> list[dict]:
+        from identity_app.shared_kernel.events.bus import STREAM_KEY
+
+        entries = await self._redis.xrange(STREAM_KEY, f"({self._last_id}", "+")
+        return [json.loads(fields["payload"]) for _entry_id, fields in entries]
+
+    async def read_named(self, name: str) -> list[dict]:
+        return [event for event in await self.read() if event["event"] == name]
+
+
+@pytest.fixture
+async def events():
+    """Return a Redis Stream reader positioned at the current stream tail."""
+    from identity_app.core.redis import create_redis_pool
+    from identity_app.core.settings import settings
+    from identity_app.shared_kernel.events.bus import STREAM_KEY
+
+    redis = create_redis_pool(settings.redis_url)
+    tail = await redis.xrevrange(STREAM_KEY, "+", "-", count=1)
+    last_id = tail[0][0] if tail else "0-0"
+    try:
+        yield EventReader(redis, last_id)
+    finally:
+        await redis.aclose()
 
 
 def _recreate_test_database() -> None:
