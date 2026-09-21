@@ -16,6 +16,20 @@ def service_headers(app, *, service: str = "diddisend") -> dict[str, str]:
     }
 
 
+def backoffice_headers(app, *, scopes: tuple[str, ...] = ("capabilities:read",)) -> dict[str, str]:
+    token = app.state.tokens.issue_service_token(
+        service_name="backoffice",
+        client_id="backoffice-staging-diddifreeid",
+        audience=settings.jwt_issuer,
+        scopes=scopes,
+        lifetime_seconds=600,
+    )
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Client-ID": "backoffice-staging-diddifreeid",
+    }
+
+
 async def test_pro_capability_projection_flow(client, user_session):
     from identity_app.main import app
 
@@ -110,3 +124,41 @@ async def test_admin_controls_access_without_overwriting_operational_status(
     assert response.status_code == 200, response.text
     assert response.json()["access_status"] == "enabled"
     assert response.json()["operational_status"] == "unknown"
+
+
+async def test_backoffice_reads_and_enables_user_capability(client, user_session):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    read_response = await client.get(
+        f"{API}/admin/users/{user_id}/capabilities",
+        headers=backoffice_headers(app),
+    )
+    assert read_response.status_code == 200
+    assert read_response.json()["capabilities"] == []
+
+    write_response = await client.patch(
+        f"{API}/admin/users/{user_id}/capabilities/diddisend/courier",
+        headers=backoffice_headers(app, scopes=("capabilities:access:write",)),
+        json={"access_status": "enabled"},
+    )
+    assert write_response.status_code == 200, write_response.text
+    assert write_response.json()["access_status"] == "enabled"
+
+    read_response = await client.get(
+        f"{API}/admin/users/{user_id}/capabilities",
+        headers=backoffice_headers(app),
+    )
+    assert read_response.json()["capabilities"][0]["service"] == "diddisend"
+
+
+async def test_non_backoffice_service_cannot_change_capability_access(client, user_session):
+    from identity_app.main import app
+
+    response = await client.patch(
+        f"{API}/admin/users/{user_session['user']['id']}/capabilities/diddigo/driver",
+        headers=service_headers(app),
+        json={"access_status": "enabled"},
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SERVICE_CAPABILITY_ACCESS_FORBIDDEN"

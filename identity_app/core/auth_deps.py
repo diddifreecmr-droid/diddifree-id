@@ -195,6 +195,86 @@ async def require_capability_service(
     )
 
 
+async def require_backoffice_capability_read(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or the dedicated Backoffice service to read one user's capabilities."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="capabilities:read",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
+async def require_backoffice_capability_write(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or Backoffice to change global capability access."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="capabilities:access:write",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
+async def _require_admin_or_backoffice_capability(
+    *,
+    request: Request,
+    required_scope: str,
+    x_client_id: str | None,
+    credentials: HTTPAuthorizationCredentials,
+    tokens: TokenService,
+    users: SqlAlchemyUserReadRepository,
+) -> User | None:
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification requise.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") == SERVICE_ROLE:
+        if claims.get("service") != "backoffice":
+            raise ApiError(403, "SERVICE_CAPABILITY_ACCESS_FORBIDDEN", "Seul le Backoffice peut gérer cet accès.")
+        if not x_client_id or x_client_id != claims.get("client_id"):
+            raise ApiError(
+                401,
+                "SERVICE_CLIENT_ID_INVALID",
+                "X-Client-ID ne correspond pas au client du token service.",
+            )
+        tokens.decode_service_token(
+            credentials.credentials,
+            audience=settings.jwt_issuer,
+            required_scopes={required_scope},
+        )
+        return None
+
+    try:
+        user_id = UUID(claims["sub"])
+    except (KeyError, ValueError) as exc:
+        raise ApiError(401, "TOKEN_INVALID", "Claim `sub` absent ou malformé.") from exc
+    user = await users.get_by_id(user_id)
+    if user is None:
+        raise ApiError(401, "TOKEN_INVALID", "Utilisateur introuvable.")
+    if user.status != UserStatus.ACTIVE:
+        raise ApiError(403, "USER_SUSPENDED", "Ce compte n'est pas actif.")
+    if user.role != UserRole.ADMIN:
+        raise ApiError(403, "FORBIDDEN_ROLE", "Rôle insuffisant pour cette action.")
+    return user
+
+
 def _required_service_scope(request: Request) -> str | None:
     """Map existing service routes to the scoped-token contract.
 

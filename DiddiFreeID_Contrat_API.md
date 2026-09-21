@@ -471,6 +471,18 @@ Mise à jour administrateur de `access_status`. Cette route ne modifie pas
 **Erreurs** : `404` (`USER_NOT_FOUND`), `401` (`SERVICE_KEY_INVALID`, `TOKEN_MISSING`),
 `403` (`FORBIDDEN_ROLE` — un `role=user` ordinaire n'a rien à faire ici)
 
+Le Backoffice peut aussi appeler cette route avec un JWT service `client_credentials`
+portant `service=backoffice`, `aud=diddifree-id`, `X-Client-ID` et le scope
+`capabilities:access:write`. Ce client ne peut modifier que `access_status` ; le module
+propriétaire reste responsable de `operational_status`.
+
+### `GET /admin/users/{user_id}/capabilities`
+
+Lecture administrative des capabilities d'un utilisateur précis. Elle est réservée à un
+admin actif ou au client technique `backoffice` avec le scope `capabilities:read`.
+Elle retourne le même format que `/pro/me`, mais elle n'utilise pas l'identité de la
+session courante. La liste globale des utilisateurs reste `GET /admin/users`.
+
 ### `GET /users/backfill`
 
 **Implémentation — nouvelle route.** Rattrapage pour un module qui n'a pas pu recevoir les événements.

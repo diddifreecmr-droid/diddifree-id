@@ -94,7 +94,7 @@ le VPS utilise déjà ce port, il suffit d'override `APP_HOST_PORT` dans
 pytest
 ```
 
-96 tests. Ils tournent contre le vrai Postgres et le vrai Redis de
+116 tests. Ils tournent contre le vrai Postgres et le vrai Redis de
 `docker-compose`, sur une base `diddi_free_id_test` recréée à chaque session et
 migrée par Alembic — les migrations sont donc testées à chaque exécution.
 

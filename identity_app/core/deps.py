@@ -250,8 +250,9 @@ def list_users_query(
 
 def get_my_capabilities_query(
     capabilities: SqlAlchemyCapabilityReadRepository = Depends(capability_read_repo),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> GetMyCapabilities:
-    return GetMyCapabilities(capabilities=capabilities)
+    return GetMyCapabilities(capabilities=capabilities, users=users)
 
 
 def request_capability_command(

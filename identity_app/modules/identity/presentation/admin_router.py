@@ -9,15 +9,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from identity_app.core.auth_deps import require_admin
+from identity_app.core.auth_deps import (
+    require_admin,
+    require_backoffice_capability_read,
+    require_backoffice_capability_write,
+)
 from identity_app.core.deps import (
     change_status_command,
     decide_kyc_command,
+    get_my_capabilities_query,
     list_users_query,
     update_capability_access_command,
 )
 from identity_app.modules.identity.application.commands import ChangeStatus, DecideKyc, UpdateCapabilityAccess
-from identity_app.modules.identity.application.queries import ListUsers
+from identity_app.modules.identity.application.queries import GetMyCapabilities, ListUsers
 from identity_app.modules.identity.domain.entities import User
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
 from identity_app.modules.identity.presentation.schemas import (
@@ -25,6 +30,7 @@ from identity_app.modules.identity.presentation.schemas import (
     CapabilityResponse,
     ChangeStatusRequest,
     KycDecisionRequest,
+    ProMeResponse,
     UserListResponse,
     UserProfile,
 )
@@ -98,7 +104,7 @@ async def update_capability_access(
     service: str,
     capability_type: str,
     payload: CapabilityAccessRequest,
-    _admin: User = Depends(require_admin),
+    _caller: User | None = Depends(require_backoffice_capability_write),
     command: UpdateCapabilityAccess = Depends(update_capability_access_command),
 ) -> dict:
     return await command(
@@ -107,3 +113,13 @@ async def update_capability_access(
         capability_type=capability_type,
         access_status=payload.access_status,
     )
+
+
+@router.get("/users/{user_id}/capabilities", response_model=ProMeResponse)
+async def get_user_capabilities(
+    user_id: UUID,
+    _caller: User | None = Depends(require_backoffice_capability_read),
+    query: GetMyCapabilities = Depends(get_my_capabilities_query),
+) -> dict:
+    """Backoffice view for one user; unlike `/pro/me`, it is not user-session scoped."""
+    return await query(user_id)

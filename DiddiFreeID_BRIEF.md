@@ -118,4 +118,8 @@ démarre l'API. Les clés JWT sont générées dans le volume Docker persistant.
 Les migrations Telegram et profil sont présentes. Les contrôles de compilation
 et de format de diff passent. Les tests d'intégration nécessitent les
 dépendances Python, PostgreSQL, Redis et Docker disponibles dans
-l'environnement d'exécution.
+l'environnement d'exécution. La projection DiddiFree Pro est également
+présente : `GET /identity/v1/pro/me`, demande de capacité, synchronisation S2S
+par module propriétaire et décision d'accès côté administration. Les états
+opérationnels restent la propriété de DiddiGo, DiddiSend, DiddiPay ou du
+module concerné.

@@ -80,6 +80,18 @@ python scripts/create_service_client.py \
   --scope food:restaurants:write
 ```
 
+For DiddiBackoffice calls to DiddiFreeID:
+
+```bash
+python scripts/create_service_client.py \
+  --client-id backoffice-staging-diddifreeid \
+  --service backoffice \
+  --environment staging \
+  --audience diddifree-id \
+  --scope capabilities:read \
+  --scope capabilities:access:write
+```
+
 The secret is displayed once. Store it in the consuming service's Portainer
 environment and do not commit it. New backend calls use both headers:
 
@@ -98,3 +110,5 @@ JWT. New tokens use:
 - `GET /users/backfill`: `users:backfill:read`
 - `PATCH /users/{user_id}/role`: `role:write`
 - `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`: `capabilities:write`
+- `GET /admin/users/{user_id}/capabilities`: `capabilities:read` for the Backoffice service
+- `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`: `capabilities:access:write` for the Backoffice service

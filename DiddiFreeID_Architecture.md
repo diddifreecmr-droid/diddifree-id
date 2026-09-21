@@ -6,6 +6,8 @@
 **Version : 1.0** — 2026-07-29
 **Statut :** Implémenté. Le code de ce dépôt suit ce document ; les écarts assumés sont listés dans le
 `README.md`.
+**Mise à jour 2026-09-21 :** ajout de la projection des capacités DiddiFree Pro et de ses métriques
+d'observabilité. Cette projection ne transforme pas les rôles métier en rôles JWT.
 **Historique :**
 - *Design* — document de conception, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. Les décisions prises pendant l'implémentation, et les
@@ -196,6 +198,30 @@ Le JWKS n'est pas mis en cache dans Redis : il est servi depuis le trousseau cha
 démarrage. L'endpoint continue donc de répondre pendant un incident PostgreSQL **ou** Redis — ce qui est
 exactement le moment où l'on tient à ce que la vérification des tokens ne bouge pas.
 
+### Projection des capacités DiddiFree Pro
+
+La table `identity.user_capabilities` fournit à DiddiFree Pro une vue globale des métiers accessibles à
+un utilisateur. Elle ne remplace pas les profils métier : chaque module reste propriétaire de son
+qualification opérationnelle.
+
+- `access_status` est administré par DiddiFreeID : `requested`, `enabled`, `suspended` ou `revoked`.
+- `operational_status` est publié par le module propriétaire : par exemple `profile_missing`,
+  `pending_verification` ou `ready`.
+- `status_source` identifie le module qui fait foi pour l'état opérationnel.
+- `projection_version` et `last_event_id` rendent les mises à jour idempotentes et détectent les conflits.
+- `freshness=stale` dans `/pro/me` signale une projection trop ancienne ; ce champ ne constitue pas une
+  autorisation métier.
+
+Les routes sont séparées par responsabilité : `/pro/me` et la demande utilisateur sont exposées au
+compte courant, la mise à jour opérationnelle est réservée au service propriétaire via JWT S2S, et la
+modification de `access_status` est réservée à l'administration. Aucun de ces états n'est ajouté au JWT
+utilisateur central.
+
+La métrique Prometheus `diddifree_capability_events_total` suit les demandes, projections et décisions
+d'accès par résultat et service. `diddifree_capability_stale_reads_total` compte les lectures périmées.
+Les labels restent limités à l'opération, au résultat et au service afin de ne pas exposer de
+`user_id` en haute cardinalité.
+
 ---
 
 ## 4. Schéma de données
@@ -274,6 +300,11 @@ CREATE TABLE identity.user_role_history (
 );
 CREATE INDEX idx_role_history_user ON identity.user_role_history(user_id);
 ```
+
+La projection capabilities est créée par la migration Alembic
+`2026_09_21-h8i9j0k1l2m3_capabilities.py`. Sa contrainte unique sur
+`(user_id, service, capability_type)` empêche les doublons ; les versions d'événements anciennes sont
+ignorées et une même version avec un autre événement est rejetée en conflit.
 
 **Pourquoi `role` reste une simple colonne texte et non une table de permissions complexe** : à ce stade,
 chaque module gère ses propres autorisations fines en interne (ex. DiddiFund décide qui peut créer une
@@ -517,6 +548,10 @@ Les cinq étapes suggérées en v1 sont réalisées :
 4. ✅ Script de migration DiddiGo — à lancer tôt, pendant que leur base de test est encore petite.
 5. ✅ Port `IdentityVerifierPort` défini côté `shared_kernel`, avec son implémentation
    `JwksIdentityVerifier` prête à être copiée chez Wallet/Fund/Ride.
+6. ✅ Projection DiddiFree Pro : `/pro/me`, demandes de capacités, synchronisation S2S par module
+   propriétaire et décision d'accès côté administration.
+7. ✅ Observabilité de base : health checks, métriques HTTP, métriques capabilities et corrélation des
+   requêtes sans labels contenant des identifiants utilisateur.
 
 ---
 
@@ -535,3 +570,4 @@ des décisions délibérément reportées, chacune avec son déclencheur.
 | **Broker d'événements** | Redis Streams, persistant, at-least-once | Migrer vers Kafka si le volume, l'ordonnancement inter-partitions ou le replay long l'exigent. Un seul fichier change |
 | **CQRS complet** | CQRS léger, une seule base | Introduire un read replica quand la latence de lecture devient un problème **mesuré** malgré cache et index |
 | **Historique exposé en HTTP** | `user_status_history` et `user_role_history` écrites, interrogeables en base uniquement | Publier des routes de consultation quand une console d'administration en aura besoin |
+| **Réconciliation des capabilities** | Projection versionnée et événements at-least-once en place | Ajouter un job de réconciliation périodique avec chaque module quand les contrats consommateurs seront déployés |
