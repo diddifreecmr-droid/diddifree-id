@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity_app.modules.identity.domain.capabilities import Capability
 from identity_app.modules.identity.domain.entities import User, UserLanguage, UserRole, UserStatus
 from identity_app.modules.identity.infra import models as orm
 
@@ -105,3 +106,33 @@ class SqlAlchemyUserReadRepository:
             .limit(page_size),
         )
         return [_to_domain(row) for row in result.scalars()], int(total or 0)
+
+
+def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
+    return Capability(
+        user_id=row.user_id,
+        service=row.service,
+        capability_type=row.capability_type,
+        access_status=row.access_status,
+        operational_status=row.operational_status,
+        status_source=row.status_source,
+        actions=tuple(row.actions or ()),
+        projection_version=row.projection_version,
+        last_event_id=row.last_event_id,
+        updated_at=row.updated_at,
+        created_at=row.created_at,
+    )
+
+
+class SqlAlchemyCapabilityReadRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_for_user(self, user_id: UUID) -> list[Capability]:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel)
+            .where(orm.UserCapabilityModel.user_id == user_id)
+            .order_by(orm.UserCapabilityModel.service, orm.UserCapabilityModel.capability_type)
+            .execution_options(populate_existing=True),
+        )
+        return [_capability_to_domain(row) for row in result.scalars()]

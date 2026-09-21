@@ -197,3 +197,53 @@ class ServiceClientModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
+
+
+class UserCapabilityModel(Base):
+    """Global capability projection used by DiddiFree Pro.
+
+    Business modules remain the source of operational truth. This row only
+    stores the coarse access decision and the latest module projection.
+    """
+
+    __tablename__ = "user_capabilities"
+    __table_args__ = (
+        Index("uq_user_capabilities_user_service_type", "user_id", "service", "capability_type", unique=True),
+        Index("idx_user_capabilities_user", "user_id"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    service: Mapped[str] = mapped_column(String(80), nullable=False)
+    capability_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    access_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'requested'"),
+    )
+    operational_status: Mapped[str] = mapped_column(
+        String(80), nullable=False, server_default=text("'unknown'"),
+    )
+    status_source: Mapped[str] = mapped_column(
+        String(80), nullable=False, server_default=text("'diddifreeid'"),
+    )
+    actions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    projection_version: Mapped[int] = mapped_column(
+        nullable=False, server_default=text("1"), default=1,
+    )
+    last_event_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )

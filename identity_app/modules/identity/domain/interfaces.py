@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from identity_app.modules.identity.domain.capabilities import Capability
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
@@ -64,6 +65,34 @@ class UserReadRepository(Protocol):
     """Read side — no writes, no transactions to hold open."""
 
     async def get_by_id(self, user_id: UUID) -> User | None:
+        ...
+
+
+class CapabilityReadRepository(Protocol):
+    async def list_for_user(self, user_id: UUID) -> list[Capability]:
+        ...
+
+
+class CapabilityWriteRepository(Protocol):
+    async def get(self, user_id: UUID, service: str, capability_type: str) -> Capability | None:
+        ...
+
+    async def upsert(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        access_status: str | None = None,
+        operational_status: str | None = None,
+        status_source: str | None = None,
+        actions: list[str] | None = None,
+        projection_version: int | None = None,
+        last_event_id: str | None = None,
+    ) -> Capability:
+        ...
+
+    async def commit(self) -> None:
         ...
 
     async def get_by_phone(self, phone: str) -> User | None:

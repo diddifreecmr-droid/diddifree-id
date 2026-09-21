@@ -161,6 +161,40 @@ async def require_service_or_admin(
     return user.id
 
 
+async def require_capability_service(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize a module updating its own operational projection.
+
+    The service name in the JWT must match the path segment. This prevents a
+    valid DiddiSend client from writing a DiddiGo projection by changing only
+    the URL.
+    """
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("status") != UserStatus.ACTIVE.value:
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service inactif.")
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au client du token service.")
+    target_service = request.path_params.get("service")
+    if target_service != claims.get("service"):
+        raise ApiError(403, "SERVICE_CAPABILITY_OWNER_INVALID", "Le service ne peut modifier que sa propre projection.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"capabilities:write"},
+    )
+
+
 def _required_service_scope(request: Request) -> str | None:
     """Map existing service routes to the scoped-token contract.
 

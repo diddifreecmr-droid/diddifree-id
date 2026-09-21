@@ -30,13 +30,17 @@ from identity_app.modules.identity.application.commands import (
     Logout,
     RefreshAccessToken,
     RegisterUser,
+    RequestCapability,
     RequestOtp,
+    UpdateCapabilityAccess,
+    UpdateCapabilityProjection,
     UpdateProfile,
     VerifyOtp,
 )
 from identity_app.modules.identity.application.queries import (
     GetCurrentUserProfile,
     GetJwks,
+    GetMyCapabilities,
     GetUserById,
     ListUsers,
 )
@@ -44,10 +48,14 @@ from identity_app.modules.identity.domain.interfaces import OtpSender
 from identity_app.modules.identity.infra.cache import RedisProfileCache
 from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
-from identity_app.modules.identity.infra.read_repository import SqlAlchemyUserReadRepository
+from identity_app.modules.identity.infra.read_repository import (
+    SqlAlchemyCapabilityReadRepository,
+    SqlAlchemyUserReadRepository,
+)
 from identity_app.modules.identity.infra.service_client_repository import SqlAlchemyServiceClientRepository
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
+    SqlAlchemyCapabilityWriteRepository,
     SqlAlchemyOtpRepository,
     SqlAlchemyRefreshTokenRepository,
     SqlAlchemyUserWriteRepository,
@@ -101,6 +109,14 @@ async def service_client_repo(
 
 async def user_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyUserReadRepository:
     return SqlAlchemyUserReadRepository(session)
+
+
+async def capability_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityReadRepository:
+    return SqlAlchemyCapabilityReadRepository(session)
+
+
+async def capability_write_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityWriteRepository:
+    return SqlAlchemyCapabilityWriteRepository(session)
 
 
 # --- infrastructure services -----------------------------------------------
@@ -230,6 +246,33 @@ def list_users_query(
     users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> ListUsers:
     return ListUsers(users=users)
+
+
+def get_my_capabilities_query(
+    capabilities: SqlAlchemyCapabilityReadRepository = Depends(capability_read_repo),
+) -> GetMyCapabilities:
+    return GetMyCapabilities(capabilities=capabilities)
+
+
+def request_capability_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+) -> RequestCapability:
+    return RequestCapability(capabilities=capabilities, events=events)
+
+
+def update_capability_projection_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+) -> UpdateCapabilityProjection:
+    return UpdateCapabilityProjection(capabilities=capabilities, events=events)
+
+
+def update_capability_access_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+) -> UpdateCapabilityAccess:
+    return UpdateCapabilityAccess(capabilities=capabilities, events=events)
 
 
 def get_jwks_query(tokens: TokenService = Depends(get_token_service)) -> GetJwks:

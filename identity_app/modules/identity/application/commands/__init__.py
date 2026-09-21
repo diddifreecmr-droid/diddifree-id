@@ -14,6 +14,11 @@ Every class here changes state. The contract each one honours (architecture §2)
 No command ever calls a query, and no query ever calls a command.
 """
 
+from identity_app.modules.identity.application.commands.capabilities import (
+    RequestCapability,
+    UpdateCapabilityAccess,
+    UpdateCapabilityProjection,
+)
 from identity_app.modules.identity.application.commands.change_role import ChangeRole
 from identity_app.modules.identity.application.commands.change_status import ChangeStatus
 from identity_app.modules.identity.application.commands.decide_kyc import DecideKyc
@@ -27,6 +32,9 @@ from identity_app.modules.identity.application.commands.verify_otp import Verify
 
 __all__ = [
     "ChangeRole",
+    "RequestCapability",
+    "UpdateCapabilityAccess",
+    "UpdateCapabilityProjection",
     "ChangeStatus",
     "DecideKyc",
     "IssueServiceToken",

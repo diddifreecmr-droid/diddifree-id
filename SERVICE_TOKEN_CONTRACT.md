@@ -97,3 +97,4 @@ JWT. New tokens use:
 - `GET /users/{user_id}`: `profile:read`
 - `GET /users/backfill`: `users:backfill:read`
 - `PATCH /users/{user_id}/role`: `role:write`
+- `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`: `capabilities:write`

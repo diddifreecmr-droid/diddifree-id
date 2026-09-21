@@ -14,12 +14,15 @@ from identity_app.core.deps import (
     change_status_command,
     decide_kyc_command,
     list_users_query,
+    update_capability_access_command,
 )
-from identity_app.modules.identity.application.commands import ChangeStatus, DecideKyc
+from identity_app.modules.identity.application.commands import ChangeStatus, DecideKyc, UpdateCapabilityAccess
 from identity_app.modules.identity.application.queries import ListUsers
 from identity_app.modules.identity.domain.entities import User
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
 from identity_app.modules.identity.presentation.schemas import (
+    CapabilityAccessRequest,
+    CapabilityResponse,
     ChangeStatusRequest,
     KycDecisionRequest,
     UserListResponse,
@@ -83,4 +86,24 @@ async def decide_kyc(
         approved=payload.approved,
         reason=payload.reason,
         decided_by=admin.id,
+    )
+
+
+@router.patch(
+    "/users/{user_id}/capabilities/{service}/{capability_type}",
+    response_model=CapabilityResponse,
+)
+async def update_capability_access(
+    user_id: UUID,
+    service: str,
+    capability_type: str,
+    payload: CapabilityAccessRequest,
+    _admin: User = Depends(require_admin),
+    command: UpdateCapabilityAccess = Depends(update_capability_access_command),
+) -> dict:
+    return await command(
+        user_id=user_id,
+        service=service,
+        capability_type=capability_type,
+        access_status=payload.access_status,
     )

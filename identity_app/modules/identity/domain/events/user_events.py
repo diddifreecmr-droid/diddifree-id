@@ -95,3 +95,39 @@ class UserStatusChanged(DomainEvent):
             "new_status": self.new_status,
             "reason": self.reason,
         }
+
+
+@dataclass
+class CapabilityRequested(DomainEvent):
+    service: str = ""
+    capability_type: str = ""
+    access_status: str = "requested"
+    name: str = field(init=False, default="capability.requested")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "service": self.service,
+            "type": self.capability_type,
+            "access_status": self.access_status,
+        }
+
+
+@dataclass
+class CapabilityStatusUpdated(DomainEvent):
+    service: str = ""
+    capability_type: str = ""
+    access_status: str = "requested"
+    operational_status: str = "unknown"
+    status_source: str = "diddifreeid"
+    projection_version: int = 1
+    name: str = field(init=False, default="capability.status_updated")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "service": self.service,
+            "type": self.capability_type,
+            "access_status": self.access_status,
+            "operational_status": self.operational_status,
+            "status_source": self.status_source,
+            "projection_version": self.projection_version,
+        }

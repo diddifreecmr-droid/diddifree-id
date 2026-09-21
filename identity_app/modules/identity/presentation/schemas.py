@@ -110,6 +110,17 @@ class KycDecisionRequest(BaseModel):
     )
 
 
+class CapabilityProjectionRequest(BaseModel):
+    operational_status: str = Field(min_length=1, max_length=80, examples=["vehicle_missing"])
+    actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])
+    projection_version: int = Field(ge=1, examples=[2])
+    event_id: str | None = Field(default=None, max_length=160)
+
+
+class CapabilityAccessRequest(BaseModel):
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+
+
 # --- responses --------------------------------------------------------------
 
 class UserProfile(BaseModel):
@@ -164,3 +175,23 @@ class Pagination(BaseModel):
 class UserListResponse(BaseModel):
     data: list[UserProfile]
     pagination: Pagination
+
+
+class CapabilityResponse(BaseModel):
+    service: str
+    type: str
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    operational_status: str
+    status_source: str
+    actions: list[str]
+    projection_version: int
+    last_event_id: str | None
+    updated_at: str
+    created_at: str
+    freshness: Literal["fresh", "stale"] = "fresh"
+
+
+class ProMeResponse(BaseModel):
+    user_id: str
+    calculated_at: str
+    capabilities: list[CapabilityResponse]

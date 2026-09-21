@@ -11,6 +11,8 @@ itself. The dependency arrow points from the modules to identity, never back.
 """
 
 from identity_app.modules.identity.domain.events.user_events import (
+    CapabilityRequested,
+    CapabilityStatusUpdated,
     DomainEvent,
     UserRegistered,
     UserRoleChanged,
@@ -20,6 +22,8 @@ from identity_app.modules.identity.domain.events.user_events import (
 
 __all__ = [
     "DomainEvent",
+    "CapabilityRequested",
+    "CapabilityStatusUpdated",
     "UserRegistered",
     "UserRoleChanged",
     "UserStatusChanged",

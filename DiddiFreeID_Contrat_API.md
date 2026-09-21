@@ -416,6 +416,57 @@ valide jusqu'à son expiration, au maximum 600 secondes par défaut.
 
 Un token d'administrateur est également accepté sur cette route.
 
+### `GET /pro/me`
+
+Façade de lecture pour DiddiFree Pro. Elle expose une projection globale des
+capacités métier sans ajouter de rôle métier au JWT utilisateur.
+
+```json
+{
+  "user_id": "uuid",
+  "calculated_at": "2026-09-21T14:00:00Z",
+  "capabilities": [
+    {
+      "service": "diddisend",
+      "type": "courier",
+      "access_status": "enabled",
+      "operational_status": "vehicle_missing",
+      "status_source": "diddisend",
+      "actions": ["complete_vehicle"],
+      "projection_version": 2,
+      "last_event_id": "evt-123",
+      "updated_at": "2026-09-21T13:58:00Z",
+      "created_at": "2026-09-21T13:00:00Z",
+      "freshness": "fresh"
+    }
+  ]
+}
+```
+
+`access_status` appartient à DiddiFreeID (`requested`, `enabled`,
+`suspended`, `revoked`). `operational_status` appartient au module indiqué par
+`status_source`. `freshness=stale` signale une projection plus ancienne que la
+fenêtre configurée ; cela ne donne ni ne retire à lui seul une permission
+métier.
+
+### `POST /pro/capabilities/{service}/{type}/request`
+
+Demande utilisateur idempotente d'activation d'une capacité. Elle crée ou
+retourne une projection `access_status=requested`.
+
+### `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`
+
+Mise à jour S2S de l'état opérationnel par le module propriétaire. Elle exige
+un JWT service visant `aud=diddifree-id`, le scope `capabilities:write`,
+`X-Client-ID` correspondant au token et un service JWT identique au segment
+`{service}`. Les versions anciennes sont ignorées ; une même version avec un
+autre événement est rejetée en conflit.
+
+### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
+
+Mise à jour administrateur de `access_status`. Cette route ne modifie pas
+`operational_status`, qui reste la propriété du module métier.
+
 **Réponse `200`** : même format que `/users/me`.
 **Erreurs** : `404` (`USER_NOT_FOUND`), `401` (`SERVICE_KEY_INVALID`, `TOKEN_MISSING`),
 `403` (`FORBIDDEN_ROLE` — un `role=user` ordinaire n'a rien à faire ici)

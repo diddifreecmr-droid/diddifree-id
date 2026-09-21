@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity_app.modules.identity.domain.capabilities import Capability
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
@@ -145,6 +146,97 @@ class SqlAlchemyUserWriteRepository:
             ),
         )
         await self._session.flush()
+
+
+def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
+    return Capability(
+        user_id=row.user_id,
+        service=row.service,
+        capability_type=row.capability_type,
+        access_status=row.access_status,
+        operational_status=row.operational_status,
+        status_source=row.status_source,
+        actions=tuple(row.actions or ()),
+        projection_version=row.projection_version,
+        last_event_id=row.last_event_id,
+        updated_at=row.updated_at,
+        created_at=row.created_at,
+    )
+
+
+class SqlAlchemyCapabilityWriteRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(self, user_id: UUID, service: str, capability_type: str) -> Capability | None:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel)
+            .where(
+                orm.UserCapabilityModel.user_id == user_id,
+                orm.UserCapabilityModel.service == service,
+                orm.UserCapabilityModel.capability_type == capability_type,
+            )
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        return None if row is None else _capability_to_domain(row)
+
+    async def upsert(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        access_status: str | None = None,
+        operational_status: str | None = None,
+        status_source: str | None = None,
+        actions: list[str] | None = None,
+        projection_version: int | None = None,
+        last_event_id: str | None = None,
+    ) -> Capability:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel).where(
+                orm.UserCapabilityModel.user_id == user_id,
+                orm.UserCapabilityModel.service == service,
+                orm.UserCapabilityModel.capability_type == capability_type,
+            ),
+        )
+        row = result.scalar_one_or_none()
+        now = datetime.now(UTC)
+        if row is None:
+            row = orm.UserCapabilityModel(
+                user_id=user_id,
+                service=service,
+                capability_type=capability_type,
+                access_status=access_status or "requested",
+                operational_status=operational_status or "unknown",
+                status_source=status_source or "diddifreeid",
+                actions=actions or [],
+                projection_version=projection_version or 1,
+                last_event_id=last_event_id,
+                created_at=now,
+                updated_at=now,
+            )
+            self._session.add(row)
+        else:
+            if access_status is not None:
+                row.access_status = access_status
+            if operational_status is not None:
+                row.operational_status = operational_status
+            if status_source is not None:
+                row.status_source = status_source
+            if actions is not None:
+                row.actions = actions
+            if projection_version is not None:
+                row.projection_version = projection_version
+            if last_event_id is not None:
+                row.last_event_id = last_event_id
+            row.updated_at = now
+        await self._session.flush()
+        return _capability_to_domain(row)
+
+    async def commit(self) -> None:
+        await self._session.commit()
 
 
 class SqlAlchemyOtpRepository:
