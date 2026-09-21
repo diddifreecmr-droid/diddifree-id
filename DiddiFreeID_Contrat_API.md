@@ -396,9 +396,20 @@ sur les routes existantes, en attendant leur migration :
    circulation, donc durée courte et réémission planifiée.
 
 Les nouveaux consommateurs doivent utiliser le endpoint client credentials et
-demander `audience=diddifree-id`, puis vérifier `iss`, `kid`, signature, `exp`,
-`aud` et les scopes requis localement. Les scopes des routes existantes sont
-`profile:read`, `users:backfill:read` et `role:write`.
+demander l'audience du service appelé (`diddifree-id`, `diddigo`, `diddifood`,
+etc.), puis envoyer :
+
+```http
+Authorization: Bearer <service_jwt>
+X-Client-ID: <client_id>
+```
+
+Le service appelé vérifie `iss`, `kid`, signature, `exp`, `aud`, `scope`,
+`token_type=service`, `status=active` et la correspondance entre
+`X-Client-ID` et `client_id`. `X-Service-Key` reste réservé aux intégrations
+existantes pendant la migration et n'est pas requis avec un nouveau JWT. Les
+scopes des routes existantes sont `profile:read`, `users:backfill:read` et
+`role:write`.
 
 La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
 valide jusqu'à son expiration, au maximum 600 secondes par défaut.

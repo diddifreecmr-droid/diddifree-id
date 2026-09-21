@@ -101,13 +101,13 @@ async def require_service_or_admin(
     """Caller is a backend service, or a human admin.
 
     Guards the two routes a module calls on its own behalf: `GET /users/{id}`
-    and `PATCH /users/{id}/role`. Contract §5 leaves the mechanism open pending
-    the Infra network decision, so both accepted forms are implemented and
-    either can be switched off by configuration:
+    and `PATCH /users/{id}/role`. New integrations use a short-lived
+    client-credentials JWT plus `X-Client-ID`. `X-Service-Key` remains
+    accepted only for legacy integrations during the migration window:
 
       * `X-Service-Key`, matched against `SERVICE_API_KEYS`;
-      * an access token carrying `role=service`, minted by
-        `scripts/issue_service_token.py`.
+      * a client-credentials token carrying `role=service`, minted by
+        `POST /auth/service/token`.
 
     Returns the acting admin's id, or `None` when the caller is a service —
     which is what lands in the audit trail's `changed_by`.

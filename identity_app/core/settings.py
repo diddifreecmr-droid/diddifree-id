@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     smtp_from_name: str = "DiddiFreeID"
     smtp_use_tls: bool = True
 
-    # --- Service-to-service (contract §5, provisional) ----------------------
+    # --- Service-to-service (JWT standard; X-Service-Key is legacy) ----------
     service_api_keys: str = ""
 
     @property

@@ -1,7 +1,7 @@
 # ADR-0003: Authentification service-to-service
 
 - Statut: accepted
-- Référence Jira: SCRUM-415
+- Référence Jira: SCRUM-405 (convention commune), SCRUM-415 (ADR)
 - Remplace: la convention générale `X-Client-ID` + `X-Service-Key` pour les nouveaux appels
 
 ## Décision
@@ -26,6 +26,10 @@ Pilotage utilise deux clients distincts :
 
 - `pilotage-staging-diddifreeid`: `aud=diddifree-id`, scopes identité ;
 - `pilotage-staging-diddigo`: `aud=diddigo`, scope `ride-summary:read`.
+
+DiddiAdmin utilise un client distinct pour DiddiFood :
+
+- `backoffice-staging-diddifood`: `aud=diddifood`, scopes Food explicitement autorisés.
 
 Cette séparation limite les permissions et permet de révoquer une intégration
 sans couper l'autre.

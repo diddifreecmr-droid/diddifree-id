@@ -11,7 +11,7 @@ Required fields:
 - `grant_type=client_credentials`
 - `client_id`
 - `client_secret`
-- `audience` — service cible, `diddifree-id` ou `diddigo`
+- `audience` — service cible enregistré pour ce client, par exemple `diddifree-id`, `diddigo` ou `diddifood`
 - `scope` — scopes séparés par des espaces
 
 Example:
@@ -68,11 +68,31 @@ python scripts/create_service_client.py \
   --scope ride-summary:read
 ```
 
+For DiddiAdmin calls to DiddiFood:
+
+```bash
+python scripts/create_service_client.py \
+  --client-id backoffice-staging-diddifood \
+  --service backoffice \
+  --environment staging \
+  --audience diddifood \
+  --scope food:restaurants:read \
+  --scope food:restaurants:write
+```
+
 The secret is displayed once. Store it in the consuming service's Portainer
-environment and do not commit it. Existing `X-Service-Key` and manually issued
-`role=service` tokens remain compatible during the migration. New tokens must
-send `X-Client-ID` on every backend call, and the header must match the
-`client_id` claim. New tokens use:
+environment and do not commit it. New backend calls use both headers:
+
+```http
+Authorization: Bearer <service_jwt>
+X-Client-ID: <client_id>
+```
+
+The receiver verifies that `X-Client-ID` matches the JWT `client_id` claim and
+that `aud` and `scope` authorize the requested operation. Existing
+`X-Service-Key` and manually issued `role=service` tokens remain compatible
+only during the migration window; `X-Service-Key` is not required with a new
+JWT. New tokens use:
 
 - `GET /users/{user_id}`: `profile:read`
 - `GET /users/backfill`: `users:backfill:read`
