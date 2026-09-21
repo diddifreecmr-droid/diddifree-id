@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from identity_app.core.errors import ApiError
+from identity_app.core.metrics import observe_capability_event
 from identity_app.modules.identity.domain.capabilities import CAPABILITY_ACCESS_STATUSES
 from identity_app.modules.identity.domain.events import CapabilityRequested, CapabilityStatusUpdated
-from identity_app.modules.identity.domain.interfaces import CapabilityWriteRepository, EventPublisher
+from identity_app.modules.identity.domain.interfaces import (
+    CapabilityWriteRepository,
+    EventPublisher,
+    UserReadRepository,
+)
 
 
 def _validate_names(service: str, capability_type: str) -> None:
@@ -20,11 +25,16 @@ def _validate_names(service: str, capability_type: str) -> None:
 class RequestCapability:
     capabilities: CapabilityWriteRepository
     events: EventPublisher
+    users: UserReadRepository
 
     async def __call__(self, *, user_id: UUID, service: str, capability_type: str) -> dict:
         _validate_names(service, capability_type)
+        if await self.users.get_by_id(user_id) is None:
+            observe_capability_event(operation="request", result="user_not_found", service=service)
+            raise ApiError(404, "USER_NOT_FOUND", "Aucun utilisateur trouvé avec cet identifiant.")
         current = await self.capabilities.get(user_id, service, capability_type)
         if current is not None:
+            observe_capability_event(operation="request", result="already_exists", service=service)
             return current.as_payload()
         capability = await self.capabilities.upsert(
             user_id=user_id,
@@ -44,6 +54,7 @@ class RequestCapability:
                 capability_type=capability_type,
             ),
         )
+        observe_capability_event(operation="request", result="created", service=service)
         return capability.as_payload()
 
 
@@ -51,6 +62,7 @@ class RequestCapability:
 class UpdateCapabilityProjection:
     capabilities: CapabilityWriteRepository
     events: EventPublisher
+    users: UserReadRepository
 
     async def __call__(
         self,
@@ -64,8 +76,12 @@ class UpdateCapabilityProjection:
         event_id: str | None,
     ) -> dict:
         _validate_names(service, capability_type)
+        if await self.users.get_by_id(user_id) is None:
+            observe_capability_event(operation="projection", result="user_not_found", service=service)
+            raise ApiError(404, "USER_NOT_FOUND", "Aucun utilisateur trouvé avec cet identifiant.")
         current = await self.capabilities.get(user_id, service, capability_type)
         if current is not None and projection_version < current.projection_version:
+            observe_capability_event(operation="projection", result="stale_version", service=service)
             return current.as_payload()
         if (
             current is not None
@@ -73,8 +89,10 @@ class UpdateCapabilityProjection:
             and event_id is not None
             and event_id == current.last_event_id
         ):
+            observe_capability_event(operation="projection", result="duplicate", service=service)
             return current.as_payload()
         if current is not None and projection_version == current.projection_version:
+            observe_capability_event(operation="projection", result="version_conflict", service=service)
             raise ApiError(409, "CAPABILITY_VERSION_CONFLICT", "La projection reçue a déjà cette version.")
         capability = await self.capabilities.upsert(
             user_id=user_id,
@@ -100,6 +118,7 @@ class UpdateCapabilityProjection:
                 projection_version=capability.projection_version,
             ),
         )
+        observe_capability_event(operation="projection", result="updated", service=service)
         return capability.as_payload()
 
 
@@ -107,6 +126,7 @@ class UpdateCapabilityProjection:
 class UpdateCapabilityAccess:
     capabilities: CapabilityWriteRepository
     events: EventPublisher
+    users: UserReadRepository
 
     async def __call__(
         self,
@@ -124,6 +144,9 @@ class UpdateCapabilityAccess:
                 "Statut d'accès invalide.",
                 {"accepted": sorted(CAPABILITY_ACCESS_STATUSES)},
             )
+        if await self.users.get_by_id(user_id) is None:
+            observe_capability_event(operation="access", result="user_not_found", service=service)
+            raise ApiError(404, "USER_NOT_FOUND", "Aucun utilisateur trouvé avec cet identifiant.")
         current = await self.capabilities.get(user_id, service, capability_type)
         capability = await self.capabilities.upsert(
             user_id=user_id,
@@ -147,4 +170,5 @@ class UpdateCapabilityAccess:
                 projection_version=capability.projection_version,
             ),
         )
+        observe_capability_event(operation="access", result="updated", service=service)
         return capability.as_payload()

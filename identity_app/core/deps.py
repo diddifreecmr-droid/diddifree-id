@@ -257,22 +257,25 @@ def get_my_capabilities_query(
 def request_capability_command(
     capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
     events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> RequestCapability:
-    return RequestCapability(capabilities=capabilities, events=events)
+    return RequestCapability(capabilities=capabilities, events=events, users=users)
 
 
 def update_capability_projection_command(
     capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
     events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> UpdateCapabilityProjection:
-    return UpdateCapabilityProjection(capabilities=capabilities, events=events)
+    return UpdateCapabilityProjection(capabilities=capabilities, events=events, users=users)
 
 
 def update_capability_access_command(
     capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
     events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> UpdateCapabilityAccess:
-    return UpdateCapabilityAccess(capabilities=capabilities, events=events)
+    return UpdateCapabilityAccess(capabilities=capabilities, events=events, users=users)
 
 
 def get_jwks_query(tokens: TokenService = Depends(get_token_service)) -> GetJwks:

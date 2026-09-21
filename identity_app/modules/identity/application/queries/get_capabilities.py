@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from identity_app.core.metrics import observe_capability_stale_read
 from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.interfaces import CapabilityReadRepository
 
@@ -22,6 +23,8 @@ class GetMyCapabilities:
             item = capability.as_payload()
             age_seconds = max(0, int((now - capability.updated_at).total_seconds()))
             item["freshness"] = "stale" if age_seconds > settings.capability_projection_stale_seconds else "fresh"
+            if item["freshness"] == "stale":
+                observe_capability_stale_read(service=capability.service)
             payload.append(item)
         return {
             "user_id": str(user_id),

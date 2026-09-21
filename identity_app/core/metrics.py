@@ -14,6 +14,16 @@ HTTP_REQUEST_DURATION = Histogram(
     "HTTP request duration in seconds.",
     ("method", "route"),
 )
+CAPABILITY_EVENTS = Counter(
+    "diddifree_capability_events",
+    "Capability projection operations handled by DiddiFreeID.",
+    ("operation", "result", "service"),
+)
+CAPABILITY_STALE_READS = Counter(
+    "diddifree_capability_stale_reads",
+    "Capability rows returned after the configured freshness window.",
+    ("service",),
+)
 
 
 def route_template(scope: dict) -> str:
@@ -31,3 +41,11 @@ def observe_http_request(*, method: str, route: str, status_code: int, duration_
 
 def metrics_payload() -> tuple[bytes, str]:
     return generate_latest(), CONTENT_TYPE_LATEST
+
+
+def observe_capability_event(*, operation: str, result: str, service: str) -> None:
+    CAPABILITY_EVENTS.labels(operation, result, service).inc()
+
+
+def observe_capability_stale_read(*, service: str) -> None:
+    CAPABILITY_STALE_READS.labels(service).inc()

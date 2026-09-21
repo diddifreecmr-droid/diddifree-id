@@ -41,10 +41,18 @@ class FakeCapabilities:
         self.commits += 1
 
 
+class FakeUsers:
+    def __init__(self, exists: bool = True) -> None:
+        self.exists = exists
+
+    async def get_by_id(self, user_id):  # noqa: ANN001
+        return object() if self.exists else None
+
+
 @pytest.mark.asyncio
 async def test_request_capability_is_idempotent() -> None:
     repo = FakeCapabilities()
-    command = RequestCapability(repo, NullEventPublisher())
+    command = RequestCapability(repo, NullEventPublisher(), FakeUsers())
     user_id = uuid4()
 
     first = await command(user_id=user_id, service="diddisend", capability_type="courier")
@@ -73,7 +81,7 @@ async def test_projection_rejects_same_version_with_another_event() -> None:
             created_at=now,
         ),
     )
-    command = UpdateCapabilityProjection(repo, NullEventPublisher())
+    command = UpdateCapabilityProjection(repo, NullEventPublisher(), FakeUsers())
 
     with pytest.raises(ApiError) as error:
         await command(
