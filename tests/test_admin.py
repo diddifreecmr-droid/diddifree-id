@@ -24,6 +24,86 @@ async def test_list_users_is_paginated(client, admin_session, otp_code, phone_fa
     assert body["pagination"]["total_pages"] >= 2
 
 
+async def test_admin_can_list_and_update_service_client_policy(client, admin_session):
+    import hashlib
+
+    from identity_app.core.database import async_session_factory
+    from identity_app.modules.identity.infra.models import ServiceClientModel
+
+    client_id = "backoffice-staging-diddigo-test"
+    secret = "service-secret-for-test"
+    async with async_session_factory() as session:
+        session.add(
+            ServiceClientModel(
+                client_id=client_id,
+                service_name="backoffice",
+                environment="staging",
+                secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
+                allowed_audiences=["diddigo"],
+                allowed_scopes=["ride-summary:read"],
+            ),
+        )
+        await session.commit()
+
+    listed = await client.get(f"{API}/admin/service-clients", headers=admin_session["headers"])
+    assert listed.status_code == 200
+    item = next(row for row in listed.json()["data"] if row["client_id"] == client_id)
+    assert item["allowed_scopes"] == ["ride-summary:read"]
+    assert "secret_hash" not in item
+    assert secret not in listed.text
+
+    updated = await client.patch(
+        f"{API}/admin/service-clients/{client_id}",
+        json={"allowed_scopes": ["ride-summary:read", "diddigo:drivers:read"]},
+        headers=admin_session["headers"],
+    )
+    assert updated.status_code == 200
+    assert updated.json()["allowed_scopes"] == ["ride-summary:read", "diddigo:drivers:read"]
+
+    token = await client.post(
+        f"{API}/auth/service/token",
+        headers={"X-Client-ID": client_id},
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": secret,
+            "audience": "diddigo",
+            "scope": "diddigo:drivers:read",
+        },
+    )
+    assert token.status_code == 200
+
+    disabled = await client.patch(
+        f"{API}/admin/service-clients/{client_id}",
+        json={"active": False},
+        headers=admin_session["headers"],
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["active"] is False
+    assert disabled.json()["revoked_at"] is not None
+
+    rejected = await client.post(
+        f"{API}/auth/service/token",
+        headers={"X-Client-ID": client_id},
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": secret,
+            "audience": "diddigo",
+            "scope": "diddigo:drivers:read",
+        },
+    )
+    assert rejected.status_code == 401
+    assert rejected.json()["error"]["code"] == "INVALID_CLIENT"
+
+
+async def test_service_client_admin_routes_reject_plain_user(client, user_session):
+    response = await client.get(f"{API}/admin/service-clients", headers=user_session["headers"])
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+
+
 async def test_list_users_filters_by_role(client, admin_session):
     r = await client.get(
         f"{API}/admin/users",

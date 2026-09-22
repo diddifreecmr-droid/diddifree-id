@@ -156,6 +156,19 @@ class ServiceClientRepository(Protocol):
     async def find_by_client_id(self, client_id: str) -> ServiceClient | None:
         ...
 
+    async def list_clients(self) -> list[ServiceClient]:
+        ...
+
+    async def update_client(
+        self,
+        client_id: str,
+        *,
+        allowed_audiences: list[str] | None = None,
+        allowed_scopes: list[str] | None = None,
+        active: bool | None = None,
+    ) -> ServiceClient | None:
+        ...
+
 
 class ProfileCache(Protocol):
     """Read-through cache for user profiles. Queries only — a command that read

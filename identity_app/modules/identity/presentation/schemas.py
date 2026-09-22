@@ -121,6 +121,44 @@ class CapabilityAccessRequest(BaseModel):
     access_status: Literal["requested", "enabled", "suspended", "revoked"]
 
 
+class ServiceClientUpdateRequest(BaseModel):
+    """Mutable machine-client policy; secrets are never accepted or returned."""
+
+    allowed_audiences: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    allowed_scopes: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> ServiceClientUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("au moins un champ doit être modifié")
+        for field_name in ("allowed_audiences", "allowed_scopes"):
+            values = getattr(self, field_name)
+            if field_name in self.model_fields_set and values is None:
+                raise ValueError(f"{field_name} ne peut pas être null")
+            if values is not None:
+                normalized = list(dict.fromkeys(value.strip() for value in values))
+                if not normalized or any(not value or len(value) > 120 for value in normalized):
+                    raise ValueError(f"{field_name} contient une valeur invalide")
+                setattr(self, field_name, normalized)
+        return self
+
+
+class ServiceClientResponse(BaseModel):
+    client_id: str
+    service_name: str
+    environment: str
+    allowed_audiences: list[str]
+    allowed_scopes: list[str]
+    active: bool
+    expires_at: str | None
+    revoked_at: str | None
+
+
+class ServiceClientListResponse(BaseModel):
+    data: list[ServiceClientResponse]
+
+
 # --- responses --------------------------------------------------------------
 
 class UserProfile(BaseModel):

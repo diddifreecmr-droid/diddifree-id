@@ -112,3 +112,29 @@ JWT. New tokens use:
 - `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`: `capabilities:write`
 - `GET /admin/users/{user_id}/capabilities`: `capabilities:read` for the Backoffice service
 - `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`: `capabilities:access:write` for the Backoffice service
+
+## Gestion des clients S2S
+
+Un administrateur humain peut consulter et modifier la politique d'un client
+S2S sans jamais voir son secret en clair:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://auth-staging.diddifree.com/identity/v1/admin/service-clients
+
+curl -X PATCH \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  https://auth-staging.diddifree.com/identity/v1/admin/service-clients/backoffice-staging-diddigo \
+  -d '{"allowed_audiences":["diddigo"],"allowed_scopes":["ride-summary:read","diddigo:drivers:read"]}'
+```
+
+Le même endpoint accepte `{"active":false}` pour révoquer un client et
+`{"active":true}` pour le réactiver. Une révocation empêche immédiatement
+l'émission de nouveaux jetons; les jetons déjà émis restent valides jusqu'à
+leur expiration courte, actuellement 600 secondes. Les réponses ne
+contiennent ni `secret_hash` ni `client_secret`.
+
+Les scopes sont définis par le service cible. DiddiFreeID les autorise ou les
+refuse pour le client, tandis que DiddiGo, DiddiPay, DiddiFiles ou DiddiFood
+doivent vérifier l'audience et le scope requis sur chacune de leurs routes.

@@ -5,6 +5,7 @@ trusting the token's `role` claim. See `core.auth_deps` for why that trade is
 worth one database read on a low-traffic path.
 """
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -19,23 +20,80 @@ from identity_app.core.deps import (
     decide_kyc_command,
     get_my_capabilities_query,
     list_users_query,
+    service_client_repo,
     update_capability_access_command,
 )
+from identity_app.core.errors import ApiError
 from identity_app.modules.identity.application.commands import ChangeStatus, DecideKyc, UpdateCapabilityAccess
 from identity_app.modules.identity.application.queries import GetMyCapabilities, ListUsers
 from identity_app.modules.identity.domain.entities import User
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
+from identity_app.modules.identity.infra.service_client_repository import SqlAlchemyServiceClientRepository
 from identity_app.modules.identity.presentation.schemas import (
     CapabilityAccessRequest,
     CapabilityResponse,
     ChangeStatusRequest,
     KycDecisionRequest,
     ProMeResponse,
+    ServiceClientListResponse,
+    ServiceClientResponse,
+    ServiceClientUpdateRequest,
     UserListResponse,
     UserProfile,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
+
+
+def _service_client_response(client) -> dict:
+    return {
+        "client_id": client.client_id,
+        "service_name": client.service_name,
+        "environment": client.environment,
+        "allowed_audiences": list(client.allowed_audiences),
+        "allowed_scopes": list(client.allowed_scopes),
+        "active": client.active,
+        "expires_at": client.expires_at.isoformat() if client.expires_at else None,
+        "revoked_at": client.revoked_at.isoformat() if client.revoked_at else None,
+    }
+
+
+@router.get("/service-clients", response_model=ServiceClientListResponse)
+async def list_service_clients(
+    _admin: User = Depends(require_admin),
+    clients: SqlAlchemyServiceClientRepository = Depends(service_client_repo),
+) -> dict:
+    """List S2S policies without exposing hashes or plaintext secrets."""
+    return {"data": [_service_client_response(client) for client in await clients.list_clients()]}
+
+
+@router.patch("/service-clients/{client_id}", response_model=ServiceClientResponse)
+async def update_service_client(
+    client_id: str,
+    payload: ServiceClientUpdateRequest,
+    admin: User = Depends(require_admin),
+    clients: SqlAlchemyServiceClientRepository = Depends(service_client_repo),
+) -> dict:
+    client = await clients.update_client(
+        client_id.strip(),
+        allowed_audiences=payload.allowed_audiences,
+        allowed_scopes=payload.allowed_scopes,
+        active=payload.active,
+    )
+    if client is None:
+        raise ApiError(404, "SERVICE_CLIENT_NOT_FOUND", "Client service introuvable.")
+    logger.info(
+        "service_client_policy_updated",
+        extra={
+            "client_id": client.client_id,
+            "admin_id": str(admin.id),
+            "active": client.active,
+            "scope_count": len(client.allowed_scopes),
+            "audience_count": len(client.allowed_audiences),
+        },
+    )
+    return _service_client_response(client)
 
 
 @router.get("/users", response_model=UserListResponse)
