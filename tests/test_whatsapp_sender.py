@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from identity_app.core.settings import settings
+from identity_app.modules.identity.domain.interfaces import WhatsAppNumberNotFound
 from identity_app.modules.identity.infra import whatsapp
 
 
@@ -29,6 +32,38 @@ class FakeAsyncClient:
     async def post(self, url: str, *, json: dict, headers: dict) -> FakeResponse:
         self.calls.append({"url": url, "json": json, "headers": headers, "timeout": self.timeout})
         return FakeResponse()
+
+
+class FakeNumberNotFoundResponse:
+    status_code = 400
+    text = (
+        '{"status":400,"error":"Bad Request","response":{"message":['
+        '{"exists":false,"jid":"2250777527065@s.whatsapp.net","number":"2250777527065"}]}}'
+    )
+
+    def json(self) -> dict:
+        return {
+            "status": 400,
+            "error": "Bad Request",
+            "response": {
+                "message": [
+                    {
+                        "exists": False,
+                        "jid": "2250777527065@s.whatsapp.net",
+                        "number": "2250777527065",
+                    },
+                ],
+            },
+        }
+
+    def raise_for_status(self) -> None:
+        raise AssertionError("number-not-found responses should be handled before raise_for_status")
+
+
+class FakeNumberNotFoundAsyncClient(FakeAsyncClient):
+    async def post(self, url: str, *, json: dict, headers: dict) -> FakeNumberNotFoundResponse:
+        self.calls.append({"url": url, "json": json, "headers": headers, "timeout": self.timeout})
+        return FakeNumberNotFoundResponse()
 
 
 async def test_evolution_sender_posts_otp_to_instance(monkeypatch):
@@ -71,3 +106,14 @@ async def test_evolution_sender_posts_otp_to_instance(monkeypatch):
         },
     ]
     assert any("482913" in message for message in records), records
+
+
+async def test_evolution_sender_raises_number_not_found(monkeypatch):
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(whatsapp.httpx, "AsyncClient", FakeNumberNotFoundAsyncClient)
+    monkeypatch.setattr(settings, "evolution_api_url", "https://evolution.test/")
+    monkeypatch.setattr(settings, "evolution_api_key", "test-evolution-key")
+    monkeypatch.setattr(settings, "evolution_instance", "diddi-staging")
+
+    with pytest.raises(WhatsAppNumberNotFound):
+        await whatsapp.EvolutionWhatsAppOtpSender().send("+2250777527065", "482913", "whatsapp")

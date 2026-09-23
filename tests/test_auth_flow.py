@@ -143,6 +143,29 @@ async def test_otp_request_does_not_reveal_unknown_numbers(client, phone_factory
     assert set(r.json()) == {"expires_in_seconds", "retry_after_seconds", "channel"}
 
 
+async def test_whatsapp_number_not_found_has_specific_code(client, phone_factory):
+    from identity_app.core import deps
+    from identity_app.main import app
+    from identity_app.modules.identity.domain.interfaces import WhatsAppNumberNotFound
+
+    class MissingWhatsAppSender:
+        async def send(self, phone, code, channel=None, email=None):  # noqa: ANN001
+            raise WhatsAppNumberNotFound("Le numéro n'existe pas sur WhatsApp.")
+
+    phone = phone_factory()
+    r = await client.post(f"{API}/auth/register", json={"phone": phone, "full_name": "No WhatsApp"})
+    assert r.status_code == 201, r.text
+
+    app.dependency_overrides[deps.otp_sender] = lambda: MissingWhatsAppSender()
+    try:
+        r = await client.post(f"{API}/auth/otp/request", json={"phone": phone, "channel": "whatsapp"})
+    finally:
+        app.dependency_overrides.pop(deps.otp_sender, None)
+
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "WHATSAPP_NUMBER_NOT_FOUND"
+
+
 async def test_email_channel_requires_profile_email(client, phone_factory):
     phone = phone_factory()
     await client.post(f"{API}/auth/register", json={"phone": phone})

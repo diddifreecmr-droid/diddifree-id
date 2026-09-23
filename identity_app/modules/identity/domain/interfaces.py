@@ -198,6 +198,14 @@ class EventPublisher(Protocol):
         ...
 
 
+class OtpDeliveryRejected(RuntimeError):
+    """The transport rejected this destination without being generally down."""
+
+
+class WhatsAppNumberNotFound(OtpDeliveryRejected):
+    """The WhatsApp transport reports that the destination number does not exist."""
+
+
 class OtpSender(Protocol):
     async def send(
         self,

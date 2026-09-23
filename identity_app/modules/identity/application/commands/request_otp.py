@@ -15,6 +15,7 @@ from identity_app.modules.identity.domain.interfaces import (
     OtpRepository,
     OtpSender,
     UserWriteRepository,
+    WhatsAppNumberNotFound,
 )
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
 
@@ -99,6 +100,12 @@ class RequestOtp:
             await self.otps.commit()
             try:
                 await self.sender.send(phone, code, channel, email)
+            except WhatsAppNumberNotFound as exc:
+                raise ApiError(
+                    422,
+                    "WHATSAPP_NUMBER_NOT_FOUND",
+                    "Ce numéro n'existe pas sur WhatsApp.",
+                ) from exc
             except RuntimeError as exc:
                 raise ApiError(
                     502,
