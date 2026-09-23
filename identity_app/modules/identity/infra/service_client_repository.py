@@ -63,6 +63,20 @@ class SqlAlchemyServiceClientRepository:
         await self._session.flush()
         return _to_domain(row)
 
+    async def rotate_secret(self, client_id: str, *, secret_hash: str) -> ServiceClient | None:
+        result = await self._session.execute(
+            select(orm.ServiceClientModel)
+            .where(orm.ServiceClientModel.client_id == client_id)
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+
+        row.secret_hash = secret_hash
+        await self._session.flush()
+        return _to_domain(row)
+
 
 def _to_domain(row: orm.ServiceClientModel) -> ServiceClient:
     return ServiceClient(

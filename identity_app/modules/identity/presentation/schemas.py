@@ -155,6 +155,10 @@ class ServiceClientResponse(BaseModel):
     revoked_at: str | None
 
 
+class ServiceClientSecretRotationResponse(ServiceClientResponse):
+    client_secret: str
+
+
 class ServiceClientListResponse(BaseModel):
     data: list[ServiceClientResponse]
 

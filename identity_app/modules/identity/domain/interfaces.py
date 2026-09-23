@@ -175,6 +175,9 @@ class ServiceClientRepository(Protocol):
     ) -> ServiceClient | None:
         ...
 
+    async def rotate_secret(self, client_id: str, *, secret_hash: str) -> ServiceClient | None:
+        ...
+
 
 class ProfileCache(Protocol):
     """Read-through cache for user profiles. Queries only — a command that read

@@ -6,6 +6,8 @@ worth one database read on a low-traffic path.
 """
 
 import logging
+from hashlib import sha256
+from secrets import token_urlsafe
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -37,6 +39,7 @@ from identity_app.modules.identity.presentation.schemas import (
     ProMeResponse,
     ServiceClientListResponse,
     ServiceClientResponse,
+    ServiceClientSecretRotationResponse,
     ServiceClientUpdateRequest,
     UserListResponse,
     UserProfile,
@@ -94,6 +97,28 @@ async def update_service_client(
         },
     )
     return _service_client_response(client)
+
+
+@router.post("/service-clients/{client_id}/secret/rotate", response_model=ServiceClientSecretRotationResponse)
+async def rotate_service_client_secret(
+    client_id: str,
+    admin: User = Depends(require_admin),
+    clients: SqlAlchemyServiceClientRepository = Depends(service_client_repo),
+) -> dict:
+    """Rotate a machine-client secret and return the plaintext once."""
+    secret = token_urlsafe(32)
+    client = await clients.rotate_secret(client_id.strip(), secret_hash=sha256(secret.encode()).hexdigest())
+    if client is None:
+        raise ApiError(404, "SERVICE_CLIENT_NOT_FOUND", "Client service introuvable.")
+    logger.info(
+        "service_client_secret_rotated",
+        extra={
+            "client_id": client.client_id,
+            "admin_id": str(admin.id),
+            "active": client.active,
+        },
+    )
+    return {**_service_client_response(client), "client_secret": secret}
 
 
 @router.get("/users", response_model=UserListResponse)

@@ -158,6 +158,20 @@ l'émission de nouveaux jetons; les jetons déjà émis restent valides jusqu'à
 leur expiration courte, actuellement 600 secondes. Les réponses ne
 contiennent ni `secret_hash` ni `client_secret`.
 
+La rotation du secret se fait par un endpoint séparé, réservé aux admins:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://auth-staging.diddifree.com/identity/v1/admin/service-clients/backoffice-staging-diddigo/secret/rotate
+```
+
+La réponse contient le nouveau `client_secret` une seule fois. DiddiFreeID ne
+stocke que son hash. L'ancien secret ne peut plus obtenir de nouveaux jetons
+dès la rotation; les jetons déjà émis restent valides jusqu'à leur expiration
+courte. La rotation ne réactive pas un client révoqué: `active` et `revoked_at`
+restent la source d'autorité pour l'émission.
+
 Les scopes sont définis par le service cible. DiddiFreeID les autorise ou les
 refuse pour le client, tandis que DiddiGo, DiddiPay, DiddiFiles ou DiddiFood
 doivent vérifier l'audience et le scope requis sur chacune de leurs routes.

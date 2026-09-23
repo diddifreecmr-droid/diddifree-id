@@ -73,6 +73,43 @@ async def test_admin_can_list_and_update_service_client_policy(client, admin_ses
     )
     assert token.status_code == 200
 
+    rotated = await client.post(
+        f"{API}/admin/service-clients/{client_id}/secret/rotate",
+        headers=admin_session["headers"],
+    )
+    assert rotated.status_code == 200
+    new_secret = rotated.json()["client_secret"]
+    assert new_secret
+    assert new_secret != secret
+    assert "secret_hash" not in rotated.text
+
+    old_secret_rejected = await client.post(
+        f"{API}/auth/service/token",
+        headers={"X-Client-ID": client_id},
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": secret,
+            "audience": "diddigo",
+            "scope": "diddigo:drivers:read",
+        },
+    )
+    assert old_secret_rejected.status_code == 401
+    assert old_secret_rejected.json()["error"]["code"] == "INVALID_CLIENT"
+
+    new_secret_accepted = await client.post(
+        f"{API}/auth/service/token",
+        headers={"X-Client-ID": client_id},
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": new_secret,
+            "audience": "diddigo",
+            "scope": "diddigo:drivers:read",
+        },
+    )
+    assert new_secret_accepted.status_code == 200
+
     disabled = await client.patch(
         f"{API}/admin/service-clients/{client_id}",
         json={"active": False},
@@ -88,7 +125,7 @@ async def test_admin_can_list_and_update_service_client_policy(client, admin_ses
         data={
             "grant_type": "client_credentials",
             "client_id": client_id,
-            "client_secret": secret,
+            "client_secret": new_secret,
             "audience": "diddigo",
             "scope": "diddigo:drivers:read",
         },
