@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     # --- Service-to-service (JWT standard; X-Service-Key is legacy) ----------
     service_api_keys: str = ""
     capability_projection_stale_seconds: int = 300
+    identity_reporting_timezone: str = "Africa/Abidjan"
 
     @property
     def service_api_key_set(self) -> frozenset[str]:

@@ -195,6 +195,34 @@ async def require_capability_service(
     )
 
 
+async def require_pilotage_reporting(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize Pilotage's aggregate identity-reporting read surface."""
+
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification service requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("service") != "pilotage":
+        raise ApiError(403, "SERVICE_REPORTING_FORBIDDEN", "Seul Pilotage peut lire ce résumé.")
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au token service.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"identity:reporting:read"},
+    )
+
+
 async def require_backoffice_capability_read(
     request: Request,
     x_client_id: str | None = Header(default=None, alias="X-Client-ID"),

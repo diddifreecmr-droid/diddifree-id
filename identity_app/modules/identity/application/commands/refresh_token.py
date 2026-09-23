@@ -13,6 +13,7 @@ from identity_app.modules.identity.domain.entities import (
 )
 from identity_app.modules.identity.domain.interfaces import (
     RefreshTokenRepository,
+    UserActivityRepository,
     UserWriteRepository,
 )
 from identity_app.modules.identity.infra.token_service import TokenService, hash_refresh_token
@@ -25,6 +26,7 @@ class RefreshAccessToken:
     refresh_tokens: RefreshTokenRepository
     users: UserWriteRepository
     tokens: TokenService
+    activity: UserActivityRepository | None = None
 
     async def __call__(self, *, refresh_token: str, device_info: str | None = None) -> dict:
         now = datetime.now(UTC)
@@ -80,6 +82,8 @@ class RefreshAccessToken:
                 created_at=now,
             ),
         )
+        if self.activity is not None:
+            await self.activity.record(user.id, at=now)
         await self.refresh_tokens.commit()
 
         return {

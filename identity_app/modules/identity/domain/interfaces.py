@@ -67,6 +67,22 @@ class UserReadRepository(Protocol):
     async def get_by_id(self, user_id: UUID) -> User | None:
         ...
 
+    async def get_by_phone(self, phone: str) -> User | None:
+        ...
+
+    async def list_users(
+        self,
+        *,
+        role: str | None,
+        status: str | None,
+        pending_kyc: bool,
+        created_since: datetime | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[User], int]:
+        """Return one page of users and the total count matching the filters."""
+        ...
+
 
 class CapabilityReadRepository(Protocol):
     async def list_for_user(self, user_id: UUID) -> list[Capability]:
@@ -95,20 +111,10 @@ class CapabilityWriteRepository(Protocol):
     async def commit(self) -> None:
         ...
 
-    async def get_by_phone(self, phone: str) -> User | None:
-        ...
 
-    async def list_users(
-        self,
-        *,
-        role: str | None,
-        status: str | None,
-        pending_kyc: bool,
-        created_since: datetime | None,
-        page: int,
-        page_size: int,
-    ) -> tuple[list[User], int]:
-        """Returns one page of users and the total count matching the filters."""
+class UserActivityRepository(Protocol):
+    async def record(self, user_id: UUID, *, at: datetime | None = None) -> None:
+        """Record authenticated activity in the current reporting day."""
         ...
 
 

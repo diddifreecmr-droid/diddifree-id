@@ -8,10 +8,10 @@ changes — the models, and every command above them, stay as they are.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -112,6 +112,41 @@ class RefreshTokenModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
+
+
+class UserActivityDailyModel(Base):
+    """Daily authenticated activity used for identity reporting.
+
+    This deliberately records one row per user and business day rather than
+    request-level telemetry. It supports DAU/MAU without retaining a raw
+    activity log or putting identifiers into Pilotage responses.
+    """
+
+    __tablename__ = "user_activity_daily"
+    __table_args__ = (
+        Index("uq_user_activity_daily_user_day", "user_id", "activity_date", unique=True),
+        Index("idx_user_activity_daily_date", "activity_date"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    activity_date: Mapped[date] = mapped_column(Date, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    source: Mapped[str] = mapped_column(String(40), nullable=False, server_default=text("'authentication'"))
 
 
 class UserRoleHistoryModel(Base):

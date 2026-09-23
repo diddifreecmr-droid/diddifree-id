@@ -39,6 +39,7 @@ from identity_app.modules.identity.application.commands import (
 )
 from identity_app.modules.identity.application.queries import (
     GetCurrentUserProfile,
+    GetIdentitySummary,
     GetJwks,
     GetMyCapabilities,
     GetUserById,
@@ -58,6 +59,7 @@ from identity_app.modules.identity.infra.write_repository import (
     SqlAlchemyCapabilityWriteRepository,
     SqlAlchemyOtpRepository,
     SqlAlchemyRefreshTokenRepository,
+    SqlAlchemyUserActivityWriteRepository,
     SqlAlchemyUserWriteRepository,
 )
 from identity_app.shared_kernel.events.bus import RedisEventPublisher
@@ -89,6 +91,12 @@ async def user_write_repo(session: AsyncSession = Depends(session_dep)) -> SqlAl
     return SqlAlchemyUserWriteRepository(session)
 
 
+async def user_activity_write_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyUserActivityWriteRepository:
+    return SqlAlchemyUserActivityWriteRepository(session)
+
+
 async def otp_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyOtpRepository:
     return SqlAlchemyOtpRepository(session)
 
@@ -113,6 +121,12 @@ async def user_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlc
 
 async def capability_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityReadRepository:
     return SqlAlchemyCapabilityReadRepository(session)
+
+
+async def get_identity_summary_query(
+    session: AsyncSession = Depends(session_dep),
+) -> GetIdentitySummary:
+    return GetIdentitySummary(users=SqlAlchemyUserReadRepository(session))
 
 
 async def capability_write_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityWriteRepository:
@@ -161,6 +175,7 @@ def verify_otp_command(
     tokens: TokenService = Depends(get_token_service),
     events: RedisEventPublisher = Depends(event_publisher),
     cache: RedisProfileCache = Depends(profile_cache),
+    activity: SqlAlchemyUserActivityWriteRepository = Depends(user_activity_write_repo),
 ) -> VerifyOtp:
     return VerifyOtp(
         otps=otps,
@@ -169,6 +184,7 @@ def verify_otp_command(
         tokens=tokens,
         events=events,
         cache=cache,
+        activity=activity,
     )
 
 
@@ -176,8 +192,9 @@ def refresh_token_command(
     refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
     users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
     tokens: TokenService = Depends(get_token_service),
+    activity: SqlAlchemyUserActivityWriteRepository = Depends(user_activity_write_repo),
 ) -> RefreshAccessToken:
-    return RefreshAccessToken(refresh_tokens=refresh_tokens, users=users, tokens=tokens)
+    return RefreshAccessToken(refresh_tokens=refresh_tokens, users=users, tokens=tokens, activity=activity)
 
 
 def logout_command(

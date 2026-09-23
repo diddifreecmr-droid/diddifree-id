@@ -14,6 +14,10 @@ Required fields:
 - `audience` — service cible enregistré pour ce client, par exemple `diddifree-id`, `diddigo` ou `diddifood`
 - `scope` — scopes séparés par des espaces
 
+Pour le reporting d'identité consommé par Pilotage, le scope dédié est
+`identity:reporting:read`. Il ne donne pas accès aux profils individuels ni aux
+routes Backoffice.
+
 Example:
 
 ```bash
@@ -68,6 +72,17 @@ python scripts/create_service_client.py \
   --scope ride-summary:read
 ```
 
+For Pilotage's aggregate identity summary:
+
+```bash
+python scripts/create_service_client.py \
+  --client-id pilotage-staging-diddifreeid \
+  --service pilotage \
+  --environment staging \
+  --audience diddifree-id \
+  --scope identity:reporting:read
+```
+
 For DiddiAdmin calls to DiddiFood:
 
 ```bash
@@ -112,6 +127,14 @@ JWT. New tokens use:
 - `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`: `capabilities:write`
 - `GET /admin/users/{user_id}/capabilities`: `capabilities:read` for the Backoffice service
 - `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`: `capabilities:access:write` for the Backoffice service
+- `GET /internal/pilotage/identity-summary?date=YYYY-MM-DD`: `identity:reporting:read` for Pilotage
+
+The identity summary is an aggregate response only. It contains the total
+number of users, users registered on the requested day, verified users, active
+users, authenticated DAU and authenticated month-to-date MAU. DAU/MAU are based
+on successful OTP verification and refresh-token activity, deduplicated by user
+and business day in the `Africa/Abidjan` timezone. It does not expose user IDs,
+phone numbers, emails, documents, or business-module data.
 
 ## Gestion des clients S2S
 

@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.capabilities import Capability
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
@@ -145,6 +148,34 @@ class SqlAlchemyUserWriteRepository:
                 changed_at=change.changed_at,
             ),
         )
+        await self._session.flush()
+
+
+class SqlAlchemyUserActivityWriteRepository:
+    """Record one authenticated activity row per user and reporting day."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record(self, user_id: UUID, *, at: datetime | None = None) -> None:
+        seen_at = at or datetime.now(UTC)
+        activity_date = seen_at.astimezone(ZoneInfo(settings.identity_reporting_timezone)).date()
+        statement = insert(orm.UserActivityDailyModel).values(
+            user_id=user_id,
+            activity_date=activity_date,
+            first_seen_at=seen_at,
+            last_seen_at=seen_at,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[orm.UserActivityDailyModel.user_id, orm.UserActivityDailyModel.activity_date],
+            set_={
+                "last_seen_at": func.greatest(
+                    orm.UserActivityDailyModel.last_seen_at,
+                    statement.excluded.last_seen_at,
+                ),
+            },
+        )
+        await self._session.execute(statement)
         await self._session.flush()
 
 

@@ -33,6 +33,7 @@ from identity_app.modules.identity.domain.interfaces import (
     OtpRepository,
     ProfileCache,
     RefreshTokenRepository,
+    UserActivityRepository,
     UserWriteRepository,
 )
 from identity_app.modules.identity.infra.token_service import TokenService
@@ -46,6 +47,7 @@ class VerifyOtp:
     tokens: TokenService
     events: EventPublisher
     cache: ProfileCache
+    activity: UserActivityRepository | None = None
 
     async def __call__(
         self,
@@ -132,6 +134,8 @@ class VerifyOtp:
                 created_at=now,
             ),
         )
+        if self.activity is not None:
+            await self.activity.record(user.id, at=now)
 
         # Commit before handing back a token. The client uses it on its very
         # next request, which can arrive before FastAPI tears this session down;

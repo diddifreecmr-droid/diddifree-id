@@ -27,6 +27,7 @@ from identity_app.modules.identity.presentation.admin_router import router as ad
 from identity_app.modules.identity.presentation.auth_router import router as auth_router
 from identity_app.modules.identity.presentation.jwks_router import router as jwks_router
 from identity_app.modules.identity.presentation.pro_router import router as pro_router
+from identity_app.modules.identity.presentation.reporting_router import router as reporting_router
 from identity_app.modules.identity.presentation.users_router import router as users_router
 
 configure_logging(settings.log_level)
@@ -129,6 +130,7 @@ async def validation_error_handler(_: Request, exc: RequestValidationError):
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
 app.include_router(pro_router, prefix=settings.api_prefix)
+app.include_router(reporting_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(jwks_router, prefix=settings.api_prefix)
 app.include_router(jwks_router)

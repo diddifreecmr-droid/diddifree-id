@@ -8,7 +8,7 @@ so it never flushes, never commits, and holds no transaction open.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -106,6 +106,56 @@ class SqlAlchemyUserReadRepository:
             .limit(page_size),
         )
         return [_to_domain(row) for row in result.scalars()], int(total or 0)
+
+    async def identity_summary(
+        self,
+        *,
+        day_start: datetime,
+        day_end: datetime,
+        activity_day: date,
+        activity_month_start: date,
+        activity_month_end: date,
+    ) -> dict[str, int]:
+        """Return aggregate identity metrics without exposing user records."""
+
+        total = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel),
+        )
+        registered = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.created_at >= day_start,
+                orm.UserModel.created_at < day_end,
+            ),
+        )
+        verified = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status != UserStatus.PENDING_VERIFICATION.value,
+            ),
+        )
+        active = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status == UserStatus.ACTIVE.value,
+            ),
+        )
+        daily_active = await self._session.scalar(
+            select(func.count()).select_from(orm.UserActivityDailyModel).where(
+                orm.UserActivityDailyModel.activity_date == activity_day,
+            ),
+        )
+        monthly_active = await self._session.scalar(
+            select(func.count(func.distinct(orm.UserActivityDailyModel.user_id))).where(
+                orm.UserActivityDailyModel.activity_date >= activity_month_start,
+                orm.UserActivityDailyModel.activity_date <= activity_month_end,
+            ),
+        )
+        return {
+            "users_total": int(total or 0),
+            "users_registered": int(registered or 0),
+            "users_verified": int(verified or 0),
+            "users_active": int(active or 0),
+            "daily_active_users": int(daily_active or 0),
+            "monthly_active_users": int(monthly_active or 0),
+        }
 
 
 def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:

@@ -233,3 +233,25 @@ class ProMeResponse(BaseModel):
     user_id: str
     calculated_at: str
     capabilities: list[CapabilityResponse]
+
+
+class IdentityMetricResponse(BaseModel):
+    name: str
+    value: int
+    unit: str
+
+
+class IdentitySummarySourceResponse(BaseModel):
+    module: str
+    record_type: str
+
+
+class IdentitySummaryResponse(BaseModel):
+    contract_version: str
+    module: str
+    date: str
+    timezone: str
+    is_final: bool
+    metrics: list[IdentityMetricResponse]
+    calculated_at: str
+    sources: list[IdentitySummarySourceResponse]
