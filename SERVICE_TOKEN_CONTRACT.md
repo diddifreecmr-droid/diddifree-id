@@ -28,7 +28,7 @@ curl -X POST https://auth-staging.diddifree.com/identity/v1/auth/service/token \
   --data-urlencode 'client_id=pilotage-staging-diddifreeid' \
   --data-urlencode 'client_secret=SECRET_STOCKE_DANS_PORTAINER' \
   --data-urlencode 'audience=diddifree-id' \
-  --data-urlencode 'scope=profile:read'
+  --data-urlencode 'scope=identity:reporting:read'
 ```
 
 Response: `access_token`, `token_type`, `expires_in`, `scope`.
@@ -175,3 +175,13 @@ restent la source d'autorité pour l'émission.
 Les scopes sont définis par le service cible. DiddiFreeID les autorise ou les
 refuse pour le client, tandis que DiddiGo, DiddiPay, DiddiFiles ou DiddiFood
 doivent vérifier l'audience et le scope requis sur chacune de leurs routes.
+
+## Exploitation
+
+Le runbook d'exploitation est dans `docs/SERVICE_TOKEN_RUNBOOK.md`. Il couvre:
+
+- inventaire des clients par environnement;
+- métriques Prometheus et alertes suggérées;
+- diagnostic des erreurs `401`/`403`/`5xx`;
+- rotation et révocation des secrets;
+- preuves de recette sans secret.

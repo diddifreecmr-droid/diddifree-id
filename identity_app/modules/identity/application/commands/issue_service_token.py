@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 
 from identity_app.core.errors import ApiError
+from identity_app.core.metrics import observe_service_token_issuance
 from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.interfaces import ServiceClientRepository
 from identity_app.modules.identity.infra.token_service import TokenService
@@ -28,24 +29,29 @@ class IssueServiceToken:
         scope: str,
     ) -> dict:
         if grant_type != "client_credentials":
+            observe_service_token_issuance(service="unknown", result="unsupported_grant_type")
             raise ApiError(400, "UNSUPPORTED_GRANT_TYPE", "Seul le grant_type client_credentials est accepté.")
 
         client = await self.clients.find_by_client_id(client_id.strip())
         if not client or not _secret_matches(client_secret, client.secret_hash):
             # Do not reveal whether the id exists, is disabled, or has a wrong secret.
+            observe_service_token_issuance(service="unknown", result="invalid_client")
             raise ApiError(401, "INVALID_CLIENT", "Identifiants service invalides.")
 
         now = datetime.now(UTC)
         if not client.active or client.revoked_at is not None or (
             client.expires_at is not None and client.expires_at <= now
         ):
+            observe_service_token_issuance(service=client.service_name, result="invalid_client")
             raise ApiError(401, "INVALID_CLIENT", "Identifiants service invalides.")
 
         audience = audience.strip()
         requested_scopes = tuple(dict.fromkeys(part for part in scope.split() if part))
         if not audience or audience not in client.allowed_audiences:
+            observe_service_token_issuance(service=client.service_name, result="invalid_audience")
             raise ApiError(403, "INVALID_AUDIENCE", "Audience non autorisée pour ce client.")
         if not requested_scopes or not set(requested_scopes).issubset(client.allowed_scopes):
+            observe_service_token_issuance(service=client.service_name, result="invalid_scope")
             raise ApiError(403, "INVALID_SCOPE", "Scope non autorisé pour ce client.")
 
         expires_in = settings.service_token_lifetime_seconds
@@ -56,6 +62,7 @@ class IssueServiceToken:
             scopes=requested_scopes,
             lifetime_seconds=expires_in,
         )
+        observe_service_token_issuance(service=client.service_name, result="issued")
         return {
             "access_token": token,
             "token_type": "Bearer",

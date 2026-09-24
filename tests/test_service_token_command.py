@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from prometheus_client import generate_latest
 
 from identity_app.core.errors import ApiError
 from identity_app.modules.identity.application.commands.issue_service_token import IssueServiceToken
@@ -89,6 +90,9 @@ async def test_service_token_returns_short_lived_bearer_response() -> None:
     assert result["token_type"] == "Bearer"
     assert result["scope"] == "profile:read ride-summary:read"
     assert tokens.kwargs["audience"] == "diddifree-id"
+    assert 'diddifree_service_token_issuance_total{result="issued",service="pilotage"}' in (
+        generate_latest().decode()
+    )
 
 
 @pytest.mark.asyncio

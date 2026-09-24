@@ -24,6 +24,11 @@ CAPABILITY_STALE_READS = Counter(
     "Capability rows returned after the configured freshness window.",
     ("service",),
 )
+SERVICE_TOKEN_ISSUANCE = Counter(
+    "diddifree_service_token_issuance",
+    "Service-token issuance attempts handled by DiddiFreeID.",
+    ("service", "result"),
+)
 
 
 def route_template(scope: dict) -> str:
@@ -49,3 +54,7 @@ def observe_capability_event(*, operation: str, result: str, service: str) -> No
 
 def observe_capability_stale_read(*, service: str) -> None:
     CAPABILITY_STALE_READS.labels(service).inc()
+
+
+def observe_service_token_issuance(*, service: str, result: str) -> None:
+    SERVICE_TOKEN_ISSUANCE.labels(service, result).inc()
