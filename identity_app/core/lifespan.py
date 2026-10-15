@@ -50,6 +50,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "OTP_PROVIDER=whatsapp requires EVOLUTION_API_URL, EVOLUTION_API_KEY and EVOLUTION_INSTANCE",
             )
 
+        if settings.otp_provider == "sms" and settings.otp_sms_provider == "yellika" and (
+            not settings.yellika_sms_token or not settings.yellika_sms_sender_id
+        ):
+            raise RuntimeError(
+                "OTP_PROVIDER=sms with OTP_SMS_PROVIDER=yellika requires "
+                "YELLIKA_SMS_TOKEN and YELLIKA_SMS_SENDER_ID",
+            )
+
+        if settings.otp_provider == "sms" and settings.otp_sms_provider == "senndo" and (
+            not settings.senndo_sms_api_key
+        ):
+            raise RuntimeError("OTP_PROVIDER=sms with OTP_SMS_PROVIDER=senndo requires SENNDO_SMS_API_KEY")
+
         if settings.otp_provider == "telegram" or settings.telegram_bot_token:
             if not settings.telegram_bot_token:
                 raise RuntimeError("OTP_PROVIDER=telegram requires TELEGRAM_BOT_TOKEN")

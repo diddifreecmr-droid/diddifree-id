@@ -17,6 +17,7 @@ from typing import Protocol
 from uuid import UUID
 
 from identity_app.modules.identity.domain.capabilities import Capability
+from identity_app.modules.identity.domain.contact_link import ContactLinkChallenge
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
@@ -134,6 +135,28 @@ class OtpRepository(Protocol):
 
     async def mark_consumed(self, otp_id: UUID) -> None:
         """Idempotent — a second call on a consumed OTP is a no-op."""
+        ...
+
+    async def commit(self) -> None:
+        ...
+
+
+class ContactLinkChallengeRepository(Protocol):
+    async def save(self, challenge: ContactLinkChallenge) -> ContactLinkChallenge:
+        ...
+
+    async def find_latest_active(
+        self,
+        user_id: UUID,
+        contact_type: str,
+        target: str,
+    ) -> ContactLinkChallenge | None:
+        ...
+
+    async def register_attempt(self, challenge_id: UUID) -> int:
+        ...
+
+    async def mark_consumed(self, challenge_id: UUID) -> None:
         ...
 
     async def commit(self) -> None:

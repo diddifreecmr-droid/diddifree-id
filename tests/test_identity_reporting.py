@@ -4,7 +4,29 @@ import hashlib
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
+
 from tests.conftest import API, register_and_verify
+
+
+async def test_successful_otp_verification_records_identity_activity(
+    client, otp_code, phone_factory
+):
+    from identity_app.core.database import async_session_factory
+    from identity_app.modules.identity.infra.models import UserActivityDailyModel
+
+    body = await register_and_verify(client, otp_code, phone_factory())
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(UserActivityDailyModel).where(
+                UserActivityDailyModel.user_id == UUID(body["user"]["id"]),
+            ),
+        )
+        rows = list(result.scalars())
+
+    assert len(rows) == 1
+    assert rows[0].source == "authentication"
 
 
 async def test_pilotage_identity_summary_reports_distinct_dau_and_mau(

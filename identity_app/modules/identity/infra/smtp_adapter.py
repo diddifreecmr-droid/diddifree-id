@@ -18,6 +18,10 @@ from sqlalchemy import select
 
 from identity_app.core.database import async_session_factory
 from identity_app.core.settings import settings
+from identity_app.modules.identity.domain.otp_delivery import (
+    OtpDeliveryRequest,
+    OtpDeliveryResult,
+)
 from identity_app.modules.identity.infra.models import UserModel
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,20 @@ class SmtpOtpSender:
         channel: str | None = None,
         email: str | None = None,
     ) -> None:
+        await self.deliver(
+            OtpDeliveryRequest(
+                phone=phone,
+                email=email,
+                code=code,
+                channel=channel or "email",
+                expires_in_seconds=settings.otp_code_lifetime_seconds,
+            ),
+        )
+
+    async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
+        phone = request.phone
+        email = request.email
+        code = request.code
         identifier = phone or email
         if settings.otp_log_plaintext:
             logger.warning("OTP Email - le code pour identifier=%s est %s.", identifier, code)
@@ -55,6 +73,7 @@ class SmtpOtpSender:
             )
 
         await asyncio.to_thread(self._send_message, recipient, code)
+        return OtpDeliveryResult(channel=request.channel, provider="smtp")
 
     @staticmethod
     def _send_message(recipient: str, code: str) -> None:

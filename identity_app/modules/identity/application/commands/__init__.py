@@ -26,8 +26,10 @@ from identity_app.modules.identity.application.commands.issue_service_token impo
 from identity_app.modules.identity.application.commands.logout import Logout
 from identity_app.modules.identity.application.commands.refresh_token import RefreshAccessToken
 from identity_app.modules.identity.application.commands.register_user import RegisterUser
+from identity_app.modules.identity.application.commands.request_contact_link_otp import RequestContactLinkOtp
 from identity_app.modules.identity.application.commands.request_otp import RequestOtp
 from identity_app.modules.identity.application.commands.update_profile import UpdateProfile
+from identity_app.modules.identity.application.commands.verify_contact_link_otp import VerifyContactLinkOtp
 from identity_app.modules.identity.application.commands.verify_otp import VerifyOtp
 
 __all__ = [
@@ -41,7 +43,9 @@ __all__ = [
     "Logout",
     "RefreshAccessToken",
     "RegisterUser",
+    "RequestContactLinkOtp",
     "RequestOtp",
     "UpdateProfile",
+    "VerifyContactLinkOtp",
     "VerifyOtp",
 ]

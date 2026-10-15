@@ -19,6 +19,10 @@ from identity_app.core.database import async_session_factory
 from identity_app.core.errors import ApiError
 from identity_app.core.settings import settings
 from identity_app.modules.identity.application.validation import validate_phone
+from identity_app.modules.identity.domain.otp_delivery import (
+    OtpDeliveryRequest,
+    OtpDeliveryResult,
+)
 from identity_app.modules.identity.infra.models import UserModel
 
 logger = logging.getLogger(__name__)
@@ -161,6 +165,19 @@ class TelegramOtpSender:
         channel: str | None = None,
         email: str | None = None,
     ) -> None:
+        await self.deliver(
+            OtpDeliveryRequest(
+                phone=phone,
+                email=email,
+                code=code,
+                channel=channel or "telegram",
+                expires_in_seconds=settings.otp_code_lifetime_seconds,
+            ),
+        )
+
+    async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
+        phone = request.phone
+        code = request.code
         if phone is None:
             raise RuntimeError("OTP Telegram nécessite un numéro de téléphone")
         # Keep staging supportable without an SMS provider. This is deliberately
@@ -187,5 +204,6 @@ class TelegramOtpSender:
 
         await self._client.send_message(
             int(chat_id),
-            f"Code DiddiFreeID : {code}\n\nCe code expire dans 5 minutes.",
+            f"Code DiddiFreeID : {code}\n\nCe code expire dans {request.expires_in_seconds // 60} minutes.",
         )
+        return OtpDeliveryResult(channel=request.channel, provider="telegram")

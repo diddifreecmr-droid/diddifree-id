@@ -23,7 +23,12 @@ class UserModel(Base):
     __tablename__ = "users"
     __table_args__ = (
         Index("idx_users_phone", "phone"),
-        Index("idx_users_email", "email", unique=True),
+        Index(
+            "idx_users_email",
+            text("lower(email)"),
+            unique=True,
+            postgresql_where=text("email IS NOT NULL"),
+        ),
         # Supports the `?role=driver` filter of `GET /admin/users`.
         Index("idx_users_role", "role"),
         {"schema": "identity"},
@@ -75,6 +80,37 @@ class OtpCodeModel(Base):
     )
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class ContactLinkChallengeModel(Base):
+    """Short-lived OTPs used to prove ownership of a new contact method."""
+
+    __tablename__ = "contact_link_challenges"
+    __table_args__ = (
+        Index("idx_contact_link_user", "user_id"),
+        Index("idx_contact_link_target", "contact_type", "target"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contact_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    target: Mapped[str] = mapped_column(String(320), nullable=False)
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

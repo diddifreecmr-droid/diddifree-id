@@ -1,18 +1,14 @@
-"""OTP delivery.
-
-No SMS aggregator is contracted yet, so the shipped implementation logs the
-code — the same stand-in DiddiGo uses, which keeps local development and the
-test suite working without a provider account.
-
-The port is what matters: when an aggregator is chosen, it becomes one more
-class here and nothing in `application/` changes.
-"""
+"""OTP logging adapter used for local development and safe fallback."""
 
 from __future__ import annotations
 
 import logging
 
 from identity_app.core.settings import settings
+from identity_app.modules.identity.domain.otp_delivery import (
+    OtpDeliveryRequest,
+    OtpDeliveryResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +28,28 @@ class LoggingOtpSender:
         channel: str | None = None,
         email: str | None = None,
     ) -> None:
+        await self.deliver(
+            OtpDeliveryRequest(
+                phone=phone,
+                email=email,
+                code=code,
+                channel=channel or "logging",
+                expires_in_seconds=settings.otp_code_lifetime_seconds,
+            ),
+        )
+
+    async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
+        phone = request.phone
+        email = request.email
+        code = request.code
         identifier = phone or email
         if settings.otp_log_plaintext:
             logger.warning(
                 "OTP stub — en développement, le code pour identifier=%s est %s. "
-                "Intégration SMS à brancher.",
+                "Aucun fournisseur de transport n'est configuré.",
                 identifier,
                 code,
             )
         else:
             logger.info("OTP émis pour identifier=%s (code non journalisé)", identifier)
+        return OtpDeliveryResult(channel=request.channel, provider="logging")

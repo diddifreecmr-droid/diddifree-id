@@ -68,6 +68,8 @@ class RequestOtp:
             raise ApiError(422, "TELEGRAM_REQUIRES_PHONE", "Telegram nécessite un numéro de téléphone.")
         if selected_channel == "whatsapp" and phone is None:
             raise ApiError(422, "WHATSAPP_REQUIRES_PHONE", "WhatsApp nécessite un numéro de téléphone.")
+        if selected_channel == "sms" and phone is None:
+            raise ApiError(422, "SMS_REQUIRES_PHONE", "SMS nécessite un numéro de téléphone.")
 
         # The response is identical whether or not the identifier is known. Any
         # difference here — a 404, a different delay, another error code —
@@ -99,7 +101,7 @@ class RequestOtp:
             # session that must already see this row.
             await self.otps.commit()
             try:
-                await self.sender.send(phone, code, channel, email)
+                await self.sender.send(phone, code, selected_channel, email)
             except WhatsAppNumberNotFound as exc:
                 raise ApiError(
                     422,

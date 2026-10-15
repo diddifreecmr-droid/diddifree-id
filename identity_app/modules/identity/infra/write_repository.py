@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.capabilities import Capability
+from identity_app.modules.identity.domain.contact_link import ContactLinkChallenge
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
@@ -115,7 +116,7 @@ class SqlAlchemyUserWriteRepository:
     async def find_by_email(self, email: str) -> User | None:
         result = await self._session.execute(
             select(orm.UserModel)
-            .where(orm.UserModel.email == email)
+            .where(func.lower(orm.UserModel.email) == email.strip().lower())
             .execution_options(populate_existing=True),
         )
         row = result.scalar_one_or_none()
@@ -335,6 +336,82 @@ class SqlAlchemyOtpRepository:
 
     async def mark_consumed(self, otp_id: UUID) -> None:
         row = await self._session.get(orm.OtpCodeModel, otp_id)
+        if row is None or row.consumed_at is not None:
+            return
+        row.consumed_at = datetime.now(UTC)
+        await self._session.flush()
+
+
+class SqlAlchemyContactLinkChallengeRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def commit(self) -> None:
+        await self._session.commit()
+
+    async def save(self, challenge: ContactLinkChallenge) -> ContactLinkChallenge:
+        self._session.add(
+            orm.ContactLinkChallengeModel(
+                id=challenge.id,
+                user_id=challenge.user_id,
+                contact_type=challenge.contact_type,
+                target=challenge.target,
+                code_hash=challenge.code_hash,
+                expires_at=challenge.expires_at,
+                consumed_at=challenge.consumed_at,
+                attempts=challenge.attempts,
+                created_at=challenge.created_at,
+            ),
+        )
+        await self._session.flush()
+        return challenge
+
+    async def find_latest_active(
+        self,
+        user_id: UUID,
+        contact_type: str,
+        target: str,
+    ) -> ContactLinkChallenge | None:
+        result = await self._session.execute(
+            select(orm.ContactLinkChallengeModel)
+            .where(
+                orm.ContactLinkChallengeModel.user_id == user_id,
+                orm.ContactLinkChallengeModel.contact_type == contact_type,
+                orm.ContactLinkChallengeModel.target == target,
+                orm.ContactLinkChallengeModel.consumed_at.is_(None),
+            )
+            .order_by(orm.ContactLinkChallengeModel.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return ContactLinkChallenge(
+            id=row.id,
+            user_id=row.user_id,
+            contact_type=row.contact_type,
+            target=row.target,
+            code_hash=row.code_hash,
+            expires_at=row.expires_at,
+            created_at=row.created_at,
+            consumed_at=row.consumed_at,
+            attempts=row.attempts,
+        )
+
+    async def register_attempt(self, challenge_id: UUID) -> int:
+        result = await self._session.execute(
+            update(orm.ContactLinkChallengeModel)
+            .where(orm.ContactLinkChallengeModel.id == challenge_id)
+            .values(attempts=orm.ContactLinkChallengeModel.attempts + 1)
+            .returning(orm.ContactLinkChallengeModel.attempts),
+        )
+        attempts = result.scalar_one()
+        await self._session.flush()
+        return attempts
+
+    async def mark_consumed(self, challenge_id: UUID) -> None:
+        row = await self._session.get(orm.ContactLinkChallengeModel, challenge_id)
         if row is None or row.consumed_at is not None:
             return
         row.consumed_at = datetime.now(UTC)

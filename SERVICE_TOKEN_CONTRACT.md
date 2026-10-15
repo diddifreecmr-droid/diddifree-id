@@ -107,6 +107,31 @@ python scripts/create_service_client.py \
   --scope capabilities:access:write
 ```
 
+## DiddiMap clients
+
+DiddiFreeID provisions one client per consuming service. All four clients use
+`audience=diddimap`; the service name remains the caller identity in the JWT.
+
+```bash
+python scripts/provision_diddimap_clients.py --environment staging
+```
+
+The command provisions these client IDs and exact scopes:
+
+| Client ID | Service | Scopes |
+| --- | --- | --- |
+| `diddigo-staging-diddimap` | `diddigo` | `diddimap:routing:read`, `diddimap:geocoding:read`, `diddimap:traces:write` |
+| `diddisend-staging-diddimap` | `diddisend` | `diddimap:routing:read`, `diddimap:geocoding:read` |
+| `backoffice-staging-diddimap` | `backoffice` | `diddimap:reports:read`, `diddimap:reports:decide`, `diddimap:insights:read`, `diddimap:insights:decide` |
+| `pilotage-staging-diddimap` | `pilotage` | `diddimap:pilotage:read` |
+
+The same command is used for production with
+`--environment production`; production has separate client IDs and secrets.
+New secrets are printed once only. Re-running the command updates the
+audience/scope policy but never reveals or replaces an existing secret.
+If an existing secret is lost, rotate it through the admin secret-rotation
+route and store the new value only in the consuming service's secret manager.
+
 The secret is displayed once. Store it in the consuming service's Portainer
 environment and do not commit it. New backend calls use both headers:
 

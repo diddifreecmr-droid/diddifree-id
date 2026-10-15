@@ -38,7 +38,7 @@ class RegisterRequest(BaseModel):
 class OtpRequestBody(BaseModel):
     phone: str | None = Field(default=None, examples=["+2250700000000"])
     email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
-    channel: Literal["email", "telegram", "whatsapp"] | None = Field(
+    channel: Literal["email", "sms", "telegram", "whatsapp"] | None = Field(
         default=None,
         description="Canal OTP. Si absent, OTP_PROVIDER est utilisé.",
     )
@@ -81,6 +81,37 @@ class UpdateProfileRequest(BaseModel):
     email: EmailAddress | None = None
     language: Literal["fr", "en"] | None = None
     photo_url: str | None = Field(default=None, max_length=2048)
+
+
+class ContactLinkRequest(BaseModel):
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
+    channel: Literal["email", "sms", "telegram", "whatsapp"] | None = None
+
+    @model_validator(mode="after")
+    def require_one_contact(self) -> ContactLinkRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un nouveau contact phone ou email requis")
+        return self
+
+
+class ContactLinkVerifyRequest(BaseModel):
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
+    code: str = Field(pattern=r"^\d{6}$", examples=["482913"])
+
+    @model_validator(mode="after")
+    def require_one_contact(self) -> ContactLinkVerifyRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un contact phone ou email requis")
+        return self
+
+
+class ContactLinkOtpResponse(BaseModel):
+    contact_type: Literal["phone", "email"]
+    channel: Literal["email", "sms", "telegram", "whatsapp", "logging"]
+    expires_in_seconds: int
+    retry_after_seconds: int
 
 
 class ChangeRoleRequest(BaseModel):
@@ -188,7 +219,7 @@ class RegisterResponse(BaseModel):
 class OtpRequestResponse(BaseModel):
     expires_in_seconds: int
     retry_after_seconds: int
-    channel: Literal["email", "telegram", "whatsapp", "logging"]
+    channel: Literal["email", "sms", "telegram", "whatsapp", "logging"]
 
 
 class TokenPairResponse(BaseModel):

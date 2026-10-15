@@ -15,3 +15,10 @@ false.env
 .env
 .env copy
 keys/
+diddimap-staging.secrets.env
+pilotage-staging-identity.secrets.env
+pilotage-staging-diddipay.secrets.env
+odoo-staging-pilotage.secrets.env
+pilotage-staging-diddifood.secrets.env
+diddigo-staging-diddipay.secrets.env
+diddicomms-staging.secrets.env

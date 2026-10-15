@@ -31,10 +31,12 @@ from identity_app.modules.identity.application.commands import (
     RefreshAccessToken,
     RegisterUser,
     RequestCapability,
+    RequestContactLinkOtp,
     RequestOtp,
     UpdateCapabilityAccess,
     UpdateCapabilityProjection,
     UpdateProfile,
+    VerifyContactLinkOtp,
     VerifyOtp,
 )
 from identity_app.modules.identity.application.queries import (
@@ -57,6 +59,7 @@ from identity_app.modules.identity.infra.service_client_repository import SqlAlc
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
     SqlAlchemyCapabilityWriteRepository,
+    SqlAlchemyContactLinkChallengeRepository,
     SqlAlchemyOtpRepository,
     SqlAlchemyRefreshTokenRepository,
     SqlAlchemyUserActivityWriteRepository,
@@ -99,6 +102,12 @@ async def user_activity_write_repo(
 
 async def otp_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyOtpRepository:
     return SqlAlchemyOtpRepository(session)
+
+
+async def contact_link_challenge_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyContactLinkChallengeRepository:
+    return SqlAlchemyContactLinkChallengeRepository(session)
 
 
 async def refresh_token_repo(
@@ -166,6 +175,29 @@ def request_otp_command(
     limiter: RedisOtpRateLimiter = Depends(otp_rate_limiter),
 ) -> RequestOtp:
     return RequestOtp(otps=otps, users=users, sender=sender, rate_limiter=limiter)
+
+
+def request_contact_link_otp_command(
+    challenges: SqlAlchemyContactLinkChallengeRepository = Depends(contact_link_challenge_repo),
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    sender: OtpSender = Depends(otp_sender),
+    limiter: RedisOtpRateLimiter = Depends(otp_rate_limiter),
+) -> RequestContactLinkOtp:
+    return RequestContactLinkOtp(
+        challenges=challenges,
+        users=users,
+        sender=sender,
+        rate_limiter=limiter,
+    )
+
+
+def verify_contact_link_otp_command(
+    challenges: SqlAlchemyContactLinkChallengeRepository = Depends(contact_link_challenge_repo),
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> VerifyContactLinkOtp:
+    return VerifyContactLinkOtp(challenges=challenges, users=users, events=events, cache=cache)
 
 
 def verify_otp_command(

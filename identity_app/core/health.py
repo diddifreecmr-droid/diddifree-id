@@ -65,6 +65,14 @@ def _check_otp_provider() -> dict[str, str]:
         ),
         "telegram": bool(settings.telegram_bot_token),
     }.get(provider, False)
+    if provider == "sms":
+        configured = settings.otp_sms_provider == "logging" or (
+            settings.otp_sms_provider == "yellika"
+            and bool(settings.yellika_sms_token and settings.yellika_sms_sender_id)
+        ) or (
+            settings.otp_sms_provider == "senndo"
+            and bool(settings.senndo_sms_api_key)
+        )
     return {"status": "ok" if configured else "error"}
 
 

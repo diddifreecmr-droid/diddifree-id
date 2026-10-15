@@ -72,12 +72,20 @@ doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
 L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
 de Portainer. Un compte peut être créé et connecté avec `phone`, `email`, ou
 les deux ; chaque requête OTP doit fournir exactement un identifiant. Une
-requête peut choisir explicitement `"channel": "email"`, `"channel":
-"telegram"` ou `"channel": "whatsapp"`. WhatsApp utilise Evolution API avec
-`EVOLUTION_API_URL`, `EVOLUTION_API_KEY` et `EVOLUTION_INSTANCE` dans Portainer.
-Telegram et WhatsApp nécessitent un numéro de téléphone. Dans tous les cas,
+requête peut choisir explicitement `"channel": "sms"`, `"channel": "email"`,
+`"channel": "telegram"` ou `"channel": "whatsapp"`. SMS utilise l'adapter
+Yellika ou Senndo selon `OTP_SMS_PROVIDER` lorsque `OTP_PROVIDER=sms` est
+configuré dans Portainer. WhatsApp utilise Evolution API avec `EVOLUTION_API_URL`,
+`EVOLUTION_API_KEY` et `EVOLUTION_INSTANCE` dans Portainer. Telegram, SMS et
+WhatsApp nécessitent un numéro de téléphone. Dans tous les cas,
 `OTP_LOG_PLAINTEXT=true` garde le code visible dans les logs ; `false` le
 masque.
+
+Pour ajouter un email ou un téléphone à un compte déjà authentifié, utiliser
+`POST /identity/v1/users/me/contact/request`, puis
+`POST /identity/v1/users/me/contact/verify`. Le contact n'est enregistré
+qu'après validation de son OTP et reste attaché au même `user_id`. Une
+modification directe de l'email via `PATCH /users/me` est refusée.
 
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
@@ -333,8 +341,9 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
   ça sans coopération du handler.
 - **La rétention du stream est bornée** et un écrit peut réussir alors que la
   publication échoue. `GET /users/backfill` est le filet pour les deux cas.
-- **Envoi SMS non branché** — le code OTP est journalisé (`OTP_LOG_PLAINTEXT`,
-  à couper en production). Le port existe, l'agrégateur reste à choisir.
+- **Fournisseurs SMS** — les adapters Yellika et Senndo sont disponibles mais
+  désactivés par défaut. Le code OTP est journalisé avec `OTP_LOG_PLAINTEXT`, à
+  couper en production.
 - **Authentification par mot de passe non exposée** — Argon2id est en place
   (`core/security.py`) et la colonne existe, mais aucune route ne l'utilise :
   le contrat §5 la range explicitement dans le « pas encore ».

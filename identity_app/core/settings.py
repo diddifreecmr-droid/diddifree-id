@@ -62,8 +62,10 @@ class Settings(BaseSettings):
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
     otp_log_plaintext: bool = True
 
-    # The request body may override this with `email`, `telegram` or `whatsapp`.
+    # The request body may override this with `sms`, `email`, `telegram` or `whatsapp`.
     otp_provider: str = "logging"
+    # The frontend selects a channel; the backend selects its provider.
+    otp_sms_provider: str = "logging"
     evolution_api_url: str | None = None
     evolution_api_key: str | None = None
     evolution_instance: str | None = None
@@ -79,6 +81,13 @@ class Settings(BaseSettings):
     smtp_from_email: str = "no-reply@diddifree.com"
     smtp_from_name: str = "DiddiFreeID"
     smtp_use_tls: bool = True
+    yellika_sms_base_url: str = "https://panel.yellikasms.com"
+    yellika_sms_token: str | None = None
+    yellika_sms_sender_id: str | None = None
+    yellika_sms_timeout_seconds: int = 20
+    senndo_sms_base_url: str = "https://api.senndo.com"
+    senndo_sms_api_key: str | None = None
+    senndo_sms_timeout_seconds: int = 30
 
     # --- Service-to-service (JWT standard; X-Service-Key is legacy) ----------
     service_api_keys: str = ""

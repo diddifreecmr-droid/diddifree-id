@@ -9,6 +9,10 @@ import httpx
 
 from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.interfaces import WhatsAppNumberNotFound
+from identity_app.modules.identity.domain.otp_delivery import (
+    OtpDeliveryRequest,
+    OtpDeliveryResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,19 @@ class EvolutionWhatsAppOtpSender:
         channel: str | None = None,
         email: str | None = None,
     ) -> None:
+        await self.deliver(
+            OtpDeliveryRequest(
+                phone=phone,
+                email=email,
+                code=code,
+                channel=channel or "whatsapp",
+                expires_in_seconds=settings.otp_code_lifetime_seconds,
+            ),
+        )
+
+    async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
+        phone = request.phone
+        code = request.code
         if phone is None:
             raise RuntimeError("OTP WhatsApp nécessite un numéro de téléphone")
 
@@ -47,7 +64,7 @@ class EvolutionWhatsAppOtpSender:
             # field. The official newer payload uses `textMessage.text`.
             "text": (
                 f"Votre code DiddiFreeID est : {code}\n\n"
-                f"Ce code expire dans {settings.otp_code_lifetime_seconds // 60} minutes."
+                f"Ce code expire dans {request.expires_in_seconds // 60} minutes."
             ),
         }
         headers = {"apikey": settings.evolution_api_key}
@@ -74,6 +91,7 @@ class EvolutionWhatsAppOtpSender:
             body = provider_response.text[:500] if provider_response is not None else str(exc)
             logger.error("Evolution API WhatsApp failed status=%s body=%s", status, body)
             raise RuntimeError("Evolution API a refusé l'envoi WhatsApp") from exc
+        return OtpDeliveryResult(channel=request.channel, provider="evolution")
 
 
 def _is_whatsapp_number_not_found(response: httpx.Response) -> bool:

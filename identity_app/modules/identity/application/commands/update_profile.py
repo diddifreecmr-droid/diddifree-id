@@ -50,16 +50,11 @@ class UpdateProfile:
         if email_provided:
             normalized_email = email.strip().lower() if email else None
             if normalized_email != user.email:
-                if normalized_email is not None:
-                    other = await self.users.find_by_email(normalized_email)
-                    if other is not None and other.id != user.id:
-                        raise ApiError(
-                            409,
-                            "EMAIL_ALREADY_REGISTERED",
-                            "Cette adresse e-mail est déjà enregistrée.",
-                        )
-                user.email = normalized_email
-                changed.append("email")
+                raise ApiError(
+                    409,
+                    "EMAIL_VERIFICATION_REQUIRED",
+                    "Utilisez /users/me/contact/request puis /users/me/contact/verify pour modifier l'e-mail.",
+                )
 
         if language is not None and language != user.language.value:
             user.language = UserLanguage(language)

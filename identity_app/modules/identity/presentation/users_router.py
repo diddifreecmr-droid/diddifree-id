@@ -11,7 +11,7 @@ granted, and for backfilling history a module could not receive as events.
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from identity_app.core.auth_deps import get_current_user_id, require_service_or_admin
 from identity_app.core.deps import (
@@ -19,9 +19,16 @@ from identity_app.core.deps import (
     get_current_profile_query,
     get_user_by_id_query,
     list_users_query,
+    request_contact_link_otp_command,
     update_profile_command,
+    verify_contact_link_otp_command,
 )
-from identity_app.modules.identity.application.commands import ChangeRole, UpdateProfile
+from identity_app.modules.identity.application.commands import (
+    ChangeRole,
+    RequestContactLinkOtp,
+    UpdateProfile,
+    VerifyContactLinkOtp,
+)
 from identity_app.modules.identity.application.queries import (
     GetCurrentUserProfile,
     GetUserById,
@@ -30,6 +37,9 @@ from identity_app.modules.identity.application.queries import (
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
 from identity_app.modules.identity.presentation.schemas import (
     ChangeRoleRequest,
+    ContactLinkOtpResponse,
+    ContactLinkRequest,
+    ContactLinkVerifyRequest,
     UpdateProfileRequest,
     UserListResponse,
     UserProfile,
@@ -60,6 +70,36 @@ async def update_me(
         language=payload.language,
         photo_url=payload.photo_url,
         photo_url_provided="photo_url" in payload.model_fields_set,
+    )
+
+
+@router.post("/me/contact/request", response_model=ContactLinkOtpResponse)
+async def request_contact_link(
+    payload: ContactLinkRequest,
+    request: Request,
+    user_id: UUID = Depends(get_current_user_id),
+    command: RequestContactLinkOtp = Depends(request_contact_link_otp_command),
+) -> dict:
+    return await command(
+        user_id=user_id,
+        phone=payload.phone,
+        email=str(payload.email) if payload.email else None,
+        channel=payload.channel,
+        client_ip=request.client.host if request.client else None,
+    )
+
+
+@router.post("/me/contact/verify", response_model=UserProfile)
+async def verify_contact_link(
+    payload: ContactLinkVerifyRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    command: VerifyContactLinkOtp = Depends(verify_contact_link_otp_command),
+) -> dict:
+    return await command(
+        user_id=user_id,
+        phone=payload.phone,
+        email=str(payload.email) if payload.email else None,
+        code=payload.code,
     )
 
 
