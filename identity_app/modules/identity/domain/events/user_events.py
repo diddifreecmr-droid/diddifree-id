@@ -98,6 +98,45 @@ class UserStatusChanged(DomainEvent):
 
 
 @dataclass
+class UserDeletionRequested(DomainEvent):
+    scheduled_for: datetime | None = None
+    name: str = field(init=False, default="user.deletion_requested")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "scheduled_for": (
+                self.scheduled_for.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                if self.scheduled_for
+                else None
+            ),
+        }
+
+
+@dataclass
+class UserDeletionCancelled(DomainEvent):
+    restored_status: str = "active"
+    name: str = field(init=False, default="user.deletion_cancelled")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {"restored_status": self.restored_status}
+
+
+@dataclass
+class UserDeleted(DomainEvent):
+    deleted_at: datetime | None = None
+    name: str = field(init=False, default="user.deleted")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "deleted_at": (
+                self.deleted_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                if self.deleted_at
+                else None
+            ),
+        }
+
+
+@dataclass
 class CapabilityRequested(DomainEvent):
     service: str = ""
     capability_type: str = ""

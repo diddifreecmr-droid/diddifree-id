@@ -11,7 +11,7 @@ granted, and for backfilling history a module could not receive as events.
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from identity_app.core.auth_deps import get_current_user_id, require_service_or_admin
 from identity_app.core.deps import (
@@ -19,12 +19,14 @@ from identity_app.core.deps import (
     get_current_profile_query,
     get_user_by_id_query,
     list_users_query,
+    request_account_deletion_command,
     request_contact_link_otp_command,
     update_profile_command,
     verify_contact_link_otp_command,
 )
 from identity_app.modules.identity.application.commands import (
     ChangeRole,
+    RequestAccountDeletion,
     RequestContactLinkOtp,
     UpdateProfile,
     VerifyContactLinkOtp,
@@ -36,6 +38,7 @@ from identity_app.modules.identity.application.queries import (
 )
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
 from identity_app.modules.identity.presentation.schemas import (
+    AccountDeletionResponse,
     ChangeRoleRequest,
     ContactLinkOtpResponse,
     ContactLinkRequest,
@@ -71,6 +74,20 @@ async def update_me(
         photo_url=payload.photo_url,
         photo_url_provided="photo_url" in payload.model_fields_set,
     )
+
+
+@router.delete("/me", response_model=AccountDeletionResponse, status_code=status.HTTP_202_ACCEPTED)
+async def delete_me(
+    user_id: UUID = Depends(get_current_user_id),
+    command: RequestAccountDeletion = Depends(request_account_deletion_command),
+) -> dict:
+    """Start the 30-day reversible account deletion period.
+
+    A successful OTP login before ``restore_until`` cancels this request. The
+    account remains a tombstone after final anonymisation so ecosystem foreign
+    keys and audit records keep their stable UUID.
+    """
+    return await command(user_id=user_id)
 
 
 @router.post("/me/contact/request", response_model=ContactLinkOtpResponse)

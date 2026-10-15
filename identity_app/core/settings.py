@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     jwt_access_lifetime_minutes: int = 15
     refresh_token_lifetime_days: int = 30
     service_token_lifetime_seconds: int = 600
+    account_deletion_grace_days: int = 30
 
     # --- OTP ---------------------------------------------------------------
     otp_code_lifetime_seconds: int = 300

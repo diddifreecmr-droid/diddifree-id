@@ -5,7 +5,7 @@ Frontend/Mobile.
 **Base URL (dev) :** `https://api-dev.diddifree.app/identity/v1`
 **Format :** JSON exclusivement · `Content-Type: application/json`
 **Référence architecture :** `DiddiFreeID_Architecture.md`
-**Version : 2.1** — 2026-08-27
+**Version : 2.3** — 2026-10-15
 **Historique :**
 - *Design* — contrat initial, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. **Aucune rupture** par rapport au contrat de design :
@@ -18,6 +18,11 @@ Frontend/Mobile.
 - **v2.1 (2026-08-27)** — ajout du canal OTP WhatsApp via Evolution API pour le staging. Cette
   évolution est additive : le canal officiel WhatsApp pourra remplacer Evolution API sans changer
   le contrat frontend.
+- **v2.2 (2026-10-15)** — ajout de la liaison vérifiée d'un email ou d'un téléphone à un compte
+  existant, de l'unicité email insensible à la casse et de la confirmation du canal SMS dans le
+  contrat OTP. Cette évolution est additive : les routes de login existantes restent inchangées.
+- **v2.3 (2026-10-15)** — ajout de la suppression réversible de compte, de la restauration par
+  vérification OTP pendant 30 jours et de l'anonymisation finale idempotente.
 
 Ce document est un **contrat**. Toute évolution incompatible sera versionnée (`/v2`), jamais poussée en
 silence sur `/v1`. Les conventions (format d'erreur, codes HTTP, pagination) reprennent volontairement
@@ -74,13 +79,14 @@ route qu'on tape le plus pendant une intégration.
 |---|---|
 | `200` | Succès |
 | `201` | Ressource créée |
+| `202` | Demande acceptée, traitement différé |
 | `204` | Succès, sans contenu |
 | `400` | Requête malformée |
 | `401` | Non authentifié / token invalide, expiré, ou révoqué |
 | `403` | Authentifié mais non autorisé (ex. route admin appelée par un `role=user`, ou compte suspendu) |
 | `404` | Ressource inexistante |
 | `409` | Conflit d'état (ex. téléphone déjà enregistré, transition de statut impossible) |
-| `410` | Ressource expirée et définitivement inutilisable (code OTP périmé) |
+| `410` | Ressource expirée et définitivement inutilisable (code OTP périmé ou compte supprimé) |
 | `422` | Validation de champs échouée |
 | `429` | Trop de requêtes (OTP demandé trop souvent, trop de tentatives) |
 | `500` | Erreur serveur |
@@ -138,7 +144,7 @@ Avec une inscription e-mail uniquement, `phone` vaut `null`.
 ### `POST /auth/otp/request`
 
 **Identifiant** : fournir exactement un `phone` ou un `email`. Le canal
-`email` peut donc être utilisé sans numéro. `channel` accepte `email`,
+`email` peut donc être utilisé sans numéro. `channel` accepte `sms`, `email`,
 `telegram` ou `whatsapp`. Le frontend
 devrait l'envoyer explicitement pour que le choix de livraison soit clair.
 S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
@@ -156,11 +162,11 @@ le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 **Réponse `200`** :
 `{ "expires_in_seconds": 300, "retry_after_seconds": 60, "channel": "email" }`
 
-`channel` vaut `email`, `telegram`, `whatsapp` ou `logging` (ce dernier uniquement pour le
+`channel` vaut `sms`, `email`, `telegram`, `whatsapp` ou `logging` (ce dernier uniquement pour le
 mode développement/staging sans transport configuré).
 
 **Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si un compte téléphone n'a pas
-d'e-mail), `422` (`TELEGRAM_REQUIRES_PHONE` ou `WHATSAPP_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
+d'e-mail), `422` (`SMS_REQUIRES_PHONE`, `TELEGRAM_REQUIRES_PHONE` ou `WHATSAPP_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
 `details.retry_after_seconds`)
 
 **Implémentation — la réponse est identique pour un identifiant connu et un identifiant inconnu.** Aucun OTP n'est
@@ -286,7 +292,8 @@ token (max 15 min de délai, acceptable ; sinon voir `user.suspended` en section
 immédiate).
 
 **Implémentation :** le claim `iss` a été ajouté et **doit être vérifié** (`diddifree-id`). Valeurs possibles de
-`status` : `pending_verification`, `pending_kyc`, `active`, `suspended`. La règle ci-dessus est
+`status` : `pending_verification`, `pending_kyc`, `active`, `suspended`. Les statuts `deletion_pending`
+et `deleted` ne sont jamais émis dans un nouveau JWT. La règle ci-dessus est
 inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc un module refuse d'agir.
 
 **Comportement attendu côté module en cas de token expiré** : renvoyer `401` avec
@@ -297,8 +304,10 @@ inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc 
 
 ### `GET /users/me`
 
-Le profil contient également `email`, qui peut être défini ou supprimé avec
-`PATCH /users/me`.
+Le profil contient également `email`. Les champs `phone` et `email` sont des
+contacts vérifiés et sont en lecture seule sur `GET /users/me` et `PATCH /users/me`.
+Pour ajouter un contact à un compte existant, utiliser les routes de liaison OTP
+ci-dessous.
 
 Pour les cas où un module a besoin du profil complet (ex. afficher `full_name` sur un reçu DiddiPay) et
 ne veut pas le maintenir en cache lui-même.
@@ -337,15 +346,14 @@ moment). Ces champs peuvent être modifiés avec le nom.
 
 ```json
 {
-  "email": "awa.new@example.com",
+  "full_name": "Awa Koné-Traoré",
   "language": "en",
   "photo_url": "https://cdn.example.com/profile.jpg"
 }
 ```
 
-Lorsqu'il existe, le numéro reste une donnée d'identité vérifiée. Son changement
-ne passe pas par ce PATCH général : il nécessitera une procédure OTP dédiée sur
-le nouveau numéro.
+Le téléphone et l'email ne peuvent pas être modifiés directement par ce PATCH.
+Une tentative de changement d'email répond `409 EMAIL_VERIFICATION_REQUIRED`.
 
 **Implémentation — nouvelle route.** Modification du profil par l'utilisateur lui-même.
 
@@ -353,6 +361,104 @@ le nouveau numéro.
 **Réponse `200`** : le profil mis à jour. Émet `user.updated` avec les champs modifiés — sauf si rien n'a
 réellement changé, auquel cas aucun événement ne part : les abonnés purgent leur cache sur `user.updated`,
 et une modification à vide n'a pas à faire tomber les caches de tout l'écosystème.
+
+### `DELETE /users/me`
+
+Demande authentifiée de suppression du compte. DiddiFreeID passe le compte en
+`deletion_pending`, révoque tous les refresh tokens et conserve une période de
+restauration de 30 jours.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Réponse `202`** :
+```json
+{
+  "status": "deletion_pending",
+  "scheduled_for": "2026-11-14T14:20:00Z",
+  "restore_until": "2026-11-14T14:20:00Z"
+}
+```
+
+La route est idempotente pendant la période de grâce : elle retourne la même
+échéance sans la repousser. Pour restaurer le compte, le frontend redemande un
+OTP avec `POST /auth/otp/request`, puis appelle `POST /auth/otp/verify` avec le
+même contact. Une vérification réussie dans les 30 jours restaure le statut
+`active` ou `pending_kyc` précédent et émet `user.deletion_cancelled`.
+
+Après l'échéance, le job `account-purger` passe le compte en `deleted`, conserve
+son UUID et ses historiques, supprime les sessions, capabilities et activité,
+et anonymise les contacts, le nom, la photo, Telegram et le mot de passe. Il
+émet `user.deleted` pour que chaque module supprime ses propres données. Un
+compte définitivement supprimé répond `410 ACCOUNT_DELETED` et ne reçoit plus
+d'OTP.
+
+### `POST /users/me/contact/request`
+
+Route authentifiée pour demander l'ajout d'un contact à la session courante.
+Fournir exactement un `phone` ou un `email`. Le `channel` est optionnel, mais
+le frontend devrait le fournir explicitement : `email` pour un nouvel email,
+et `sms`, `telegram` ou `whatsapp` pour un nouveau téléphone.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Requête email** :
+```json
+{
+  "email": "awa.new@example.com",
+  "channel": "email"
+}
+```
+
+**Requête téléphone** :
+```json
+{
+  "phone": "+2250700000000",
+  "channel": "sms"
+}
+```
+
+**Réponse `200`** :
+```json
+{
+  "contact_type": "email",
+  "channel": "email",
+  "expires_in_seconds": 300,
+  "retry_after_seconds": 60
+}
+```
+
+Le challenge est enregistré avant l'envoi et ne contient jamais le code en
+clair. Le code reste soumis aux mêmes limites de tentatives, d'expiration et
+de journalisation que les OTP de login.
+
+**Erreurs** : `409` (`CONTACT_ALREADY_LINKED`, `PHONE_ALREADY_REGISTERED` ou
+`EMAIL_ALREADY_REGISTERED`), `422` (`IDENTIFIER_REQUIRED`,
+`EMAIL_CONTACT_REQUIRES_EMAIL_CHANNEL`, `PHONE_CONTACT_REQUIRES_PHONE_CHANNEL`
+ou une erreur de format téléphone), `429` (`OTP_RATE_LIMITED`).
+
+### `POST /users/me/contact/verify`
+
+Vérifie le code reçu et attache le contact au **même `user_id`**. Fournir
+exactement le même `phone` ou `email` que dans la demande précédente.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Requête** :
+```json
+{
+  "email": "awa.new@example.com",
+  "code": "482913"
+}
+```
+
+**Réponse `200`** : le profil complet mis à jour.
+
+**Erreurs** : `400 CONTACT_OTP_INVALID`, `409` (`PHONE_ALREADY_REGISTERED`
+ou `EMAIL_ALREADY_REGISTERED`), `410 CONTACT_OTP_EXPIRED`, `429
+CONTACT_OTP_TOO_MANY_ATTEMPTS`.
+
+Un contact ne peut appartenir qu'à un seul compte. L'email est normalisé en
+minuscules et protégé en PostgreSQL par un index unique sur `lower(email)`.
 
 ### `GET /users/{user_id}`
 
@@ -679,6 +785,9 @@ section 10 de l'architecture.
 - Endpoints de gestion fine des rôles multiples (un utilisateur à la fois `driver` et `merchant`) — le
   modèle actuel suppose un rôle principal unique par utilisateur ; à revoir si le besoin apparaît. À
   noter : le portillon KYC de la v1.0 raisonne lui aussi sur un rôle demandé à la fois.
+- Fusion de comptes — volontairement hors MVP. Un email ou un téléphone déjà lié à un autre compte répond
+  `409 EMAIL_ALREADY_REGISTERED` ou `409 PHONE_ALREADY_REGISTERED`. Une future fusion devra authentifier
+  explicitement les deux comptes et coordonner la migration des références métier dans chaque module.
 - KYC documentaire (upload de pièce d'identité) — probablement un sous-module dédié plutôt qu'un champ de
   plus sur `users`, à spécifier séparément. **Implémentation :** le *portillon* (demande, file d'instruction,
   décision, audit) est en place ; ce qui reste à spécifier est la collecte et le stockage des pièces.

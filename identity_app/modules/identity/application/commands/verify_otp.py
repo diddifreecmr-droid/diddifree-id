@@ -27,7 +27,7 @@ from identity_app.modules.identity.domain.entities import (
     UserStatus,
     UserStatusChange,
 )
-from identity_app.modules.identity.domain.events import UserRegistered
+from identity_app.modules.identity.domain.events import UserDeletionCancelled, UserRegistered
 from identity_app.modules.identity.domain.interfaces import (
     EventPublisher,
     OtpRepository,
@@ -100,8 +100,42 @@ class VerifyOtp:
             # no `full_name` and bypass the 409-on-duplicate rule.
             raise ApiError(404, "USER_NOT_FOUND", "Aucun compte n'est associé à cet identifiant.")
 
+        if user.status == UserStatus.DELETED:
+            await self.otps.commit()
+            raise ApiError(410, "ACCOUNT_DELETED", "Ce compte a été définitivement supprimé.")
+
         if user.status == UserStatus.SUSPENDED:
             raise ApiError(403, "USER_SUSPENDED", "Ce compte est suspendu.")
+
+        deletion_restored = False
+        if user.status == UserStatus.DELETION_PENDING:
+            if user.deletion_scheduled_for is None or user.deletion_scheduled_for <= now:
+                await self.otps.commit()
+                raise ApiError(
+                    410,
+                    "ACCOUNT_DELETION_EXPIRED",
+                    "La période de restauration de ce compte est terminée.",
+                )
+            restored_status = user.deletion_previous_status
+            if restored_status not in {UserStatus.ACTIVE, UserStatus.PENDING_KYC}:
+                restored_status = UserStatus.ACTIVE
+            user.status = restored_status
+            user.deletion_requested_at = None
+            user.deletion_scheduled_for = None
+            user.deletion_previous_status = None
+            await self.users.save(user)
+            await self.users.record_status_change(
+                UserStatusChange(
+                    id=UserStatusChange.new_id(),
+                    user_id=user.id,
+                    from_status=UserStatus.DELETION_PENDING,
+                    to_status=restored_status,
+                    reason="Restauration après vérification OTP",
+                    changed_by=None,
+                    changed_at=now,
+                ),
+            )
+            deletion_restored = True
 
         first_verification = user.status == UserStatus.PENDING_VERIFICATION
         if first_verification:
@@ -150,6 +184,15 @@ class VerifyOtp:
             # second wallet for a returning user would be a real bug.
             await self.events.publish(
                 UserRegistered(user_id=user.id, phone=user.phone, role=user.role.value),
+            )
+        if deletion_restored:
+            await self.events.publish(
+                UserDeletionCancelled(
+                    user_id=user.id,
+                    phone=user.phone,
+                    role=user.role.value,
+                    restored_status=user.status.value,
+                ),
             )
 
         access_token = self.tokens.issue_access_token(

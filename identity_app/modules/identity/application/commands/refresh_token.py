@@ -61,6 +61,14 @@ class RefreshAccessToken:
         user = await self.users.find_by_id(stored.user_id)
         if user is None:
             raise ApiError(401, "REFRESH_TOKEN_INVALID", "Le refresh token est invalide.")
+        if user.status.value == "deleted":
+            raise ApiError(410, "ACCOUNT_DELETED", "Ce compte a été définitivement supprimé.")
+        if user.status.value == "deletion_pending":
+            raise ApiError(
+                403,
+                "ACCOUNT_DELETION_PENDING",
+                "La suppression de ce compte est en attente. Vérifiez un OTP pour le restaurer.",
+            )
         if user.status not in SESSION_ALLOWED_STATUSES:
             # This is the point where suspension actually bites: the access
             # token stays valid for at most 15 minutes, but no new one is ever

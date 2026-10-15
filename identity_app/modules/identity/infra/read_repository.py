@@ -37,6 +37,12 @@ def _to_domain(row: orm.UserModel) -> User:
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        deletion_requested_at=row.deletion_requested_at,
+        deletion_scheduled_for=row.deletion_scheduled_for,
+        deletion_previous_status=(
+            UserStatus(row.deletion_previous_status) if row.deletion_previous_status else None
+        ),
+        deleted_at=row.deleted_at,
     )
 
 
@@ -119,17 +125,21 @@ class SqlAlchemyUserReadRepository:
         """Return aggregate identity metrics without exposing user records."""
 
         total = await self._session.scalar(
-            select(func.count()).select_from(orm.UserModel),
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
         )
         registered = await self._session.scalar(
             select(func.count()).select_from(orm.UserModel).where(
                 orm.UserModel.created_at >= day_start,
                 orm.UserModel.created_at < day_end,
+                orm.UserModel.status != UserStatus.DELETED.value,
             ),
         )
         verified = await self._session.scalar(
             select(func.count()).select_from(orm.UserModel).where(
                 orm.UserModel.status != UserStatus.PENDING_VERIFICATION.value,
+                orm.UserModel.status != UserStatus.DELETED.value,
             ),
         )
         active = await self._session.scalar(
@@ -140,12 +150,16 @@ class SqlAlchemyUserReadRepository:
         daily_active = await self._session.scalar(
             select(func.count()).select_from(orm.UserActivityDailyModel).where(
                 orm.UserActivityDailyModel.activity_date == activity_day,
+                orm.UserActivityDailyModel.user_id == orm.UserModel.id,
+                orm.UserModel.status != UserStatus.DELETED.value,
             ),
         )
         monthly_active = await self._session.scalar(
             select(func.count(func.distinct(orm.UserActivityDailyModel.user_id))).where(
                 orm.UserActivityDailyModel.activity_date >= activity_month_start,
                 orm.UserActivityDailyModel.activity_date <= activity_month_end,
+                orm.UserActivityDailyModel.user_id == orm.UserModel.id,
+                orm.UserModel.status != UserStatus.DELETED.value,
             ),
         )
         return {

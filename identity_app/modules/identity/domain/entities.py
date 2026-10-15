@@ -54,6 +54,8 @@ class UserStatus(str, Enum):
     PENDING_KYC = "pending_kyc"
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    DELETION_PENDING = "deletion_pending"
+    DELETED = "deleted"
 
 
 class UserLanguage(str, Enum):
@@ -76,11 +78,22 @@ class UserLanguage(str, Enum):
 #     stays exactly as usable as it was.
 ALLOWED_STATUS_TRANSITIONS: dict[UserStatus, frozenset[UserStatus]] = {
     UserStatus.PENDING_VERIFICATION: frozenset(
-        {UserStatus.ACTIVE, UserStatus.PENDING_KYC, UserStatus.SUSPENDED},
+        {
+            UserStatus.ACTIVE,
+            UserStatus.PENDING_KYC,
+            UserStatus.SUSPENDED,
+            UserStatus.DELETION_PENDING,
+        },
     ),
-    UserStatus.PENDING_KYC: frozenset({UserStatus.ACTIVE, UserStatus.SUSPENDED}),
-    UserStatus.ACTIVE: frozenset({UserStatus.SUSPENDED}),
+    UserStatus.PENDING_KYC: frozenset(
+        {UserStatus.ACTIVE, UserStatus.SUSPENDED, UserStatus.DELETION_PENDING},
+    ),
+    UserStatus.ACTIVE: frozenset({UserStatus.SUSPENDED, UserStatus.DELETION_PENDING}),
     UserStatus.SUSPENDED: frozenset({UserStatus.ACTIVE}),
+    UserStatus.DELETION_PENDING: frozenset(
+        {UserStatus.ACTIVE, UserStatus.PENDING_KYC, UserStatus.DELETED},
+    ),
+    UserStatus.DELETED: frozenset(),
 }
 
 #: Statuses in which a person may still hold a session on DiddiFreeID itself.
@@ -122,6 +135,10 @@ class User:
     requested_role: UserRole | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    deletion_requested_at: datetime | None = None
+    deletion_scheduled_for: datetime | None = None
+    deletion_previous_status: UserStatus | None = None
+    deleted_at: datetime | None = None
 
     @staticmethod
     def new_id() -> UUID:

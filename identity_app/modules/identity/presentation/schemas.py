@@ -114,6 +114,12 @@ class ContactLinkOtpResponse(BaseModel):
     retry_after_seconds: int
 
 
+class AccountDeletionResponse(BaseModel):
+    status: Literal["deletion_pending"]
+    scheduled_for: str
+    restore_until: str
+
+
 class ChangeRoleRequest(BaseModel):
     role: str = Field(examples=["admin"])
     reason: str | None = Field(

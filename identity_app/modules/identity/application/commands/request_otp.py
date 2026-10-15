@@ -61,6 +61,11 @@ class RequestOtp:
             )
 
         user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
+        # A final tombstone must behave like an unknown identifier. This keeps
+        # the endpoint's anti-enumeration contract and avoids sending OTPs to a
+        # contact that was deliberately erased.
+        if user is not None and user.status.value == "deleted":
+            user = None
         selected_channel = channel or settings.otp_provider
         if selected_channel == "smtp":
             selected_channel = "email"

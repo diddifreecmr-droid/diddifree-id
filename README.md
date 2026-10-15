@@ -87,6 +87,11 @@ Pour ajouter un email ou un téléphone à un compte déjà authentifié, utilis
 qu'après validation de son OTP et reste attaché au même `user_id`. Une
 modification directe de l'email via `PATCH /users/me` est refusée.
 
+Pour supprimer un compte, appeler `DELETE /identity/v1/users/me`. La demande
+est réversible pendant 30 jours : une nouvelle connexion OTP restaure le
+compte. Le service `account-purger`, sans port exposé, anonymise ensuite le
+tombstone et publie `user.deleted` pour les modules métier.
+
 Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite
@@ -126,7 +131,7 @@ identity_app/
     │   ├── commands/         écrivent (RegisterUser, VerifyOtp, ChangeStatus…)
     │   └── queries/          lisent (GetUserById, ListUsers, GetJwks…)
     ├── domain/               entités, ports, événements — ne dépend de rien
-    └── infra/                write_repository, read_repository, cache, tokens, SMS
+    └── infra/                repositories, cache, tokens, OTP router et adapters
 ```
 
 ### Le CQRS léger, concrètement
@@ -289,7 +294,7 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
 
 | Point | Décision | Pourquoi |
 |---|---|---|
-| Auth service-à-service (contrat §5, « à trancher ») | Les deux formes sont implémentées : en-tête `X-Service-Key` (`SERVICE_API_KEYS`) et token `role=service` (`scripts/issue_service_token.py`) | Le choix dépend du modèle réseau retenu avec l'équipe Infra. Livrer les deux évite de bloquer les modules en attendant, et l'une se désactive par configuration |
+| Auth service-à-service | JWT `client_credentials` avec `X-Client-ID` pour les nouvelles intégrations ; `X-Service-Key` et token offline `role=service` conservés uniquement pour la migration | Finaliser la migration de tous les modules, puis désactiver les mécanismes legacy |
 | `PATCH /users/{id}/role` | Ouvert aux services **et** aux admins | Le contrat le range en §3 « réservé `role=admin` » mais son texte dit qu'un module backend l'appelle. Les deux lectures sont satisfaites |
 | `POST /auth/otp/verify` sur un identifiant sans compte | `404 USER_NOT_FOUND` | La création de compte appartient à `/auth/register`. En créer un ici contournerait le `409` sur doublon et produirait des comptes sans `full_name` |
 | `POST /auth/otp/request` sur un identifiant inconnu | `200`, identique à un identifiant connu, cooldown armé quand même | Toute différence transforme la route en oracle « cette personne est-elle chez DiddiFree » |
@@ -343,7 +348,8 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
   publication échoue. `GET /users/backfill` est le filet pour les deux cas.
 - **Fournisseurs SMS** — les adapters Yellika et Senndo sont disponibles mais
   désactivés par défaut. Le code OTP est journalisé avec `OTP_LOG_PLAINTEXT`, à
-  couper en production.
+  couper en production. Le même routage provider-neutral couvre aussi email,
+  Telegram et WhatsApp.
 - **Authentification par mot de passe non exposée** — Argon2id est en place
   (`core/security.py`) et la colonne existe, mais aucune route ne l'utilise :
   le contrat §5 la range explicitement dans le « pas encore ».

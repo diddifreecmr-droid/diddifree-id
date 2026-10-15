@@ -47,6 +47,12 @@ def _user_to_domain(row: orm.UserModel) -> User:
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        deletion_requested_at=row.deletion_requested_at,
+        deletion_scheduled_for=row.deletion_scheduled_for,
+        deletion_previous_status=(
+            UserStatus(row.deletion_previous_status) if row.deletion_previous_status else None
+        ),
+        deleted_at=row.deleted_at,
     )
 
 
@@ -74,9 +80,16 @@ class SqlAlchemyUserWriteRepository:
                 requested_role=user.requested_role.value if user.requested_role else None,
                 created_at=user.created_at or now,
                 updated_at=now,
+                deletion_requested_at=user.deletion_requested_at,
+                deletion_scheduled_for=user.deletion_scheduled_for,
+                deletion_previous_status=(
+                    user.deletion_previous_status.value if user.deletion_previous_status else None
+                ),
+                deleted_at=user.deleted_at,
             )
             self._session.add(row)
         else:
+            row.phone = user.phone
             row.full_name = user.full_name
             row.email = user.email
             row.language = user.language.value
@@ -85,6 +98,12 @@ class SqlAlchemyUserWriteRepository:
             row.role = user.role.value
             row.status = user.status.value
             row.requested_role = user.requested_role.value if user.requested_role else None
+            row.deletion_requested_at = user.deletion_requested_at
+            row.deletion_scheduled_for = user.deletion_scheduled_for
+            row.deletion_previous_status = (
+                user.deletion_previous_status.value if user.deletion_previous_status else None
+            )
+            row.deleted_at = user.deleted_at
             row.updated_at = now
         await self._session.flush()
         user.updated_at = now

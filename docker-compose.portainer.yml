@@ -19,6 +19,7 @@ services:
       JWT_ACCESS_LIFETIME_MINUTES: ${JWT_ACCESS_LIFETIME_MINUTES:-15}
       REFRESH_TOKEN_LIFETIME_DAYS: ${REFRESH_TOKEN_LIFETIME_DAYS:-30}
       SERVICE_TOKEN_LIFETIME_SECONDS: ${SERVICE_TOKEN_LIFETIME_SECONDS:-600}
+      ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
       OTP_CODE_LIFETIME_SECONDS: ${OTP_CODE_LIFETIME_SECONDS:-300}
       OTP_RATE_LIMIT_SECONDS: ${OTP_RATE_LIMIT_SECONDS:-60}
       OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
@@ -68,6 +69,21 @@ services:
         fi
         alembic upgrade head
         exec uvicorn identity_app.main:app --host 0.0.0.0 --port 8000
+
+  account-purger:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
+      ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    command: ["sh", "-c", "while true; do python scripts/purge_deleted_accounts.py; sleep 3600; done"]
 
   db:
     image: postgres:16-alpine

@@ -5,10 +5,11 @@
 DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
 
 - l'inscription et la connexion par OTP via téléphone ou e-mail ;
-- l'envoi OTP via logging, e-mail SMTP, Telegram ou WhatsApp Evolution API ;
+- l'envoi OTP via logging, e-mail SMTP, SMS (Yellika ou Senndo), Telegram ou
+  WhatsApp Evolution API ;
 - les tokens JWT RS256 et le JWKS ;
 - le profil partagé : numéro éventuellement absent, e-mail, nom, langue `fr|en` et `photo_url` ;
-- les statuts globaux `pending_verification`, `active` et `suspended` ;
+- les statuts globaux `pending_verification`, `active`, `suspended`, `deletion_pending` et `deleted` ;
 - les rôles globaux de plateforme : `user` et `admin` ;
 - les événements d'identité et la lecture de profil service-to-service.
 
@@ -47,10 +48,25 @@ vérification OTP. Le canal e-mail permet le login sans numéro ; Telegram et
 WhatsApp restent réservés aux demandes qui fournissent un numéro de téléphone.
 
 `PATCH /identity/v1/users/me` permet de modifier le nom, la langue et le lien
-de photo. Une photo peut être supprimée avec `photo_url: null`.
+de photo. Une photo peut être supprimée avec `photo_url: null`. Les contacts
+`phone` et `email` sont vérifiés et ne sont pas modifiables directement par ce
+PATCH.
 
-Lorsqu'il existe, le numéro est une donnée d'identité vérifiée. Il ne doit pas être changé par le
-PATCH général : il faudra une procédure OTP dédiée sur le nouveau numéro.
+Pour ajouter un contact à un compte authentifié, le frontend appelle
+`POST /identity/v1/users/me/contact/request`, puis
+`POST /identity/v1/users/me/contact/verify` avec le code reçu. Le nouveau
+contact est attaché au même `user_id` uniquement après vérification OTP. Un
+email ou un téléphone déjà utilisé par un autre compte est refusé. Les emails
+sont normalisés en minuscules et protégés par une unicité PostgreSQL
+insensible à la casse.
+
+## Suppression de compte MVP
+
+`DELETE /identity/v1/users/me` demande la suppression et révoque les sessions.
+Le compte reste restaurable pendant 30 jours : le frontend réutilise le login
+OTP habituel pour annuler la suppression. Après ce délai, le service
+`account-purger` anonymise les données personnelles, conserve l'UUID et les
+historiques, puis publie `user.deleted` pour les modules métier.
 
 ## OTP Telegram staging
 
@@ -112,6 +128,7 @@ dans ce dépôt.
 sont fournies directement dans Portainer. La base et Redis restent internes à
 la stack, l'application attend la base, exécute `alembic upgrade head`, puis
 démarre l'API. Les clés JWT sont générées dans le volume Docker persistant.
+Le service sans port `account-purger` exécute la purge finale chaque heure.
 
 ## État actuel
 

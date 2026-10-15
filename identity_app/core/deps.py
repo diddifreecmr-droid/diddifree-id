@@ -30,6 +30,7 @@ from identity_app.modules.identity.application.commands import (
     Logout,
     RefreshAccessToken,
     RegisterUser,
+    RequestAccountDeletion,
     RequestCapability,
     RequestContactLinkOtp,
     RequestOtp,
@@ -273,6 +274,15 @@ def change_status_command(
     cache: RedisProfileCache = Depends(profile_cache),
 ) -> ChangeStatus:
     return ChangeStatus(users=users, refresh_tokens=refresh_tokens, events=events, cache=cache)
+
+
+def request_account_deletion_command(
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> RequestAccountDeletion:
+    return RequestAccountDeletion(users=users, refresh_tokens=refresh_tokens, events=events, cache=cache)
 
 
 # --- queries ----------------------------------------------------------------
