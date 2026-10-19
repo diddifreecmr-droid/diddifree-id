@@ -121,13 +121,14 @@ services:
       com.diddifree.observability: "true"
 
   prometheus:
-    image: prom/prometheus:v2.54.1
+    build:
+      context: ./observability
+      dockerfile: Dockerfile
+      target: prometheus
     ports:
       - "${PROMETHEUS_HOST_PORT:-19090}:9090"
     volumes:
       - prometheus_data:/prometheus
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -143,13 +144,15 @@ services:
       com.diddifree.observability: "true"
 
   loki:
-    image: grafana/loki:3.3.2
+    build:
+      context: ./observability
+      dockerfile: Dockerfile
+      target: loki
     ports:
       - "${LOKI_HOST_PORT:-13100}:3100"
     command: ["-config.file=/etc/loki/loki-config.yml"]
     volumes:
       - loki_data:/loki
-      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3100/ready"]
       interval: 15s
@@ -159,7 +162,10 @@ services:
       com.diddifree.observability: "true"
 
   alloy:
-    image: grafana/alloy:v1.8.3
+    build:
+      context: ./observability
+      dockerfile: Dockerfile
+      target: alloy
     command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy"]
     depends_on:
       loki:
@@ -167,12 +173,14 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy_data:/var/lib/alloy
-      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
     labels:
       com.diddifree.observability: "true"
 
   grafana:
-    image: grafana/grafana:11.2.0
+    build:
+      context: ./observability
+      dockerfile: Dockerfile
+      target: grafana
     ports:
       - "${GRAFANA_HOST_PORT:-13000}:3000"
     environment:
@@ -181,8 +189,6 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       prometheus:
         condition: service_healthy

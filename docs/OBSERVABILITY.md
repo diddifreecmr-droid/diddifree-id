@@ -27,6 +27,10 @@ Prometheus scrape `http://app:8000/metrics` sur le réseau Docker interne. Grafa
 avec Prometheus, Loki et le dashboard `DiddiFreeID Overview`. Alloy lit les logs Docker uniquement
 pour les conteneurs portant le label `com.diddifree.observability=true`.
 
+Les fichiers de configuration sont intégrés aux images d'observabilité construites depuis
+`observability/Dockerfile`. Cette approche évite les bind mounts de fichiers de configuration,
+qui peuvent être fragiles avec les stacks Git Portainer.
+
 Les logs sont conservés dans le volume `loki_data` avec une rétention initiale de 7 jours. Le volume
 `alloy_data` conserve la position de lecture afin d'éviter de renvoyer tout l'historique après un
 redémarrage.
