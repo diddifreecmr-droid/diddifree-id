@@ -1,0 +1,61 @@
+groups:
+  - name: diddifree-id
+    rules:
+      - alert: DiddiFreeIDDown
+        expr: up{job="diddifree-id"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: diddifree-id
+        annotations:
+          summary: DiddiFreeID ne répond plus
+          description: Prometheus ne peut plus récupérer les métriques de DiddiFreeID depuis 2 minutes.
+
+      - alert: DiddiFreeIDHighErrorRate
+        expr: |
+          (
+            sum(rate(diddifree_http_requests_total{job="diddifree-id",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(diddifree_http_requests_total{job="diddifree-id"}[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: diddifree-id
+        annotations:
+          summary: Taux d'erreur DiddiFreeID élevé
+          description: Plus de 5% des requêtes retournent une erreur 5xx depuis 10 minutes.
+
+      - alert: DiddiFreeIDHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(diddifree_http_request_duration_seconds_bucket{job="diddifree-id"}[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: diddifree-id
+        annotations:
+          summary: Latence DiddiFreeID élevée
+          description: Le percentile 95 des requêtes dépasse 1 seconde depuis 10 minutes.
+
+      - alert: DiddiFreeIDDependencyUnhealthy
+        expr: diddifree_dependency_health{job="diddifree-id"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: diddifree-id
+        annotations:
+          summary: Dépendance DiddiFreeID indisponible
+          description: La dépendance {{ $labels.dependency }} est déclarée unhealthy depuis 2 minutes.
+
+      - alert: DiddiFreeIDCapabilityProjectionStale
+        expr: increase(diddifree_capability_stale_reads_total{job="diddifree-id"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: diddifree-id
+        annotations:
+          summary: Projection de capability obsolète
+          description: DiddiFreeID retourne des capabilities au-delà de leur fenêtre de fraîcheur.

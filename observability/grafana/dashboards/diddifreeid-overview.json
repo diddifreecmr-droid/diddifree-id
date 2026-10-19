@@ -1,0 +1,74 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "title": "Requêtes par seconde",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(rate(diddifree_http_requests_total{job=\"diddifree-id\"}[5m]))", "legendFormat": "req/s"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Taux 5xx",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{"expr": "sum(rate(diddifree_http_requests_total{job=\"diddifree-id\",status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(diddifree_http_requests_total{job=\"diddifree-id\"}[5m])), 1)", "legendFormat": "5xx"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Latence p95",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(diddifree_http_request_duration_seconds_bucket{job=\"diddifree-id\"}[5m])) by (le))", "legendFormat": "p95"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Santé des dépendances",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"expr": "diddifree_dependency_health{job=\"diddifree-id\"}", "legendFormat": "{{dependency}}"}],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Livraisons OTP",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [{"expr": "sum by (channel, provider, result) (rate(diddifree_otp_deliveries_total{job=\"diddifree-id\"}[5m]))", "legendFormat": "{{channel}} / {{provider}} / {{result}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Service tokens",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [{"expr": "sum by (service, result) (rate(diddifree_service_token_issuance_total{job=\"diddifree-id\"}[5m]))", "legendFormat": "{{service}} / {{result}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "diddifree-prometheus"}
+    },
+    {
+      "title": "Logs applicatifs",
+      "type": "logs",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
+      "targets": [{"expr": "{compose_service=\"app\"}", "refId": "A", "queryType": "range"}],
+      "options": {"showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLines": false, "prettifyLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending"},
+      "datasource": {"type": "loki", "uid": "diddifree-loki"}
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["diddifree", "identity", "observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DiddiFreeID Overview",
+  "uid": "diddifreeid-overview",
+  "version": 1
+}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 HTTP_REQUESTS = Counter(
     "diddifree_http_requests",
@@ -28,6 +28,21 @@ SERVICE_TOKEN_ISSUANCE = Counter(
     "diddifree_service_token_issuance",
     "Service-token issuance attempts handled by DiddiFreeID.",
     ("service", "result"),
+)
+OTP_DELIVERIES = Counter(
+    "diddifree_otp_deliveries",
+    "OTP delivery attempts handled by DiddiFreeID.",
+    ("channel", "provider", "result"),
+)
+EVENT_PUBLISH = Counter(
+    "diddifree_event_publish",
+    "Domain event publication attempts handled by DiddiFreeID.",
+    ("event", "result"),
+)
+DEPENDENCY_HEALTH = Gauge(
+    "diddifree_dependency_health",
+    "Current readiness state of a DiddiFreeID dependency (1 healthy, 0 unhealthy).",
+    ("dependency",),
 )
 
 
@@ -58,3 +73,15 @@ def observe_capability_stale_read(*, service: str) -> None:
 
 def observe_service_token_issuance(*, service: str, result: str) -> None:
     SERVICE_TOKEN_ISSUANCE.labels(service, result).inc()
+
+
+def observe_otp_delivery(*, channel: str, provider: str, result: str) -> None:
+    OTP_DELIVERIES.labels(channel, provider, result).inc()
+
+
+def observe_event_publish(*, event: str, result: str) -> None:
+    EVENT_PUBLISH.labels(event, result).inc()
+
+
+def observe_dependency_health(*, dependency: str, healthy: bool) -> None:
+    DEPENDENCY_HEALTH.labels(dependency).set(1 if healthy else 0)

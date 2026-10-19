@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from identity_app.core.metrics import observe_otp_delivery
 from identity_app.core.settings import settings
 from identity_app.modules.identity.domain.otp_delivery import OtpDeliveryRequest
 from identity_app.modules.identity.infra.senndo import SenndoSmsOtpSender
@@ -35,15 +36,22 @@ class OtpSenderRouter:
         adapter = self._adapters(provider)
         if adapter is None:
             raise RuntimeError(f"OTP provider inconnu : {provider}")
-        await adapter.deliver(
-            OtpDeliveryRequest(
-                phone=phone,
-                email=email,
-                code=code,
-                channel=channel_name,
-                expires_in_seconds=settings.otp_code_lifetime_seconds,
-            ),
+        request = OtpDeliveryRequest(
+            phone=phone,
+            email=email,
+            code=code,
+            channel=channel_name,
+            expires_in_seconds=settings.otp_code_lifetime_seconds,
         )
+        try:
+            result = await adapter.deliver(request)
+        except Exception:
+            observe_otp_delivery(channel=channel_name, provider=provider, result="error")
+            raise
+        # Production adapters return OtpDeliveryResult. Keep instrumentation
+        # tolerant of lightweight test doubles that only signal completion.
+        delivered_by = getattr(result, "provider", provider)
+        observe_otp_delivery(channel=channel_name, provider=delivered_by, result="success")
 
     @staticmethod
     def _resolve(selected: str) -> tuple[str, str]:

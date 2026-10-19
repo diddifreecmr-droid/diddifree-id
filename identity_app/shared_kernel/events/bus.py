@@ -37,6 +37,7 @@ import logging
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from identity_app.core.metrics import observe_event_publish
 from identity_app.modules.identity.domain.events import DomainEvent
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ class RedisEventPublisher:
             logger.info(
                 "événement publié : %s user_id=%s (entry=%s)", event.name, event.user_id, entry_id,
             )
+            observe_event_publish(event=event.name, result="success")
         except Exception:
             # Never let a bus failure roll back a completed write. The user IS
             # registered; the account exists. Failing the HTTP call here would
@@ -78,6 +80,7 @@ class RedisEventPublisher:
             # write landed and the event did not. `GET /users/backfill` is how a
             # module recovers from it.
             logger.error("publication de l'événement %s impossible", event.name, exc_info=True)
+            observe_event_publish(event=event.name, result="error")
 
 
 class NullEventPublisher:

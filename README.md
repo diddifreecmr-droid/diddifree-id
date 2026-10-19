@@ -101,13 +101,23 @@ Le service `app` expose par défaut le port `18010` sur l'hôte. Si Portainer ou
 le VPS utilise déjà ce port, il suffit d'override `APP_HOST_PORT` dans
 `.env` ou dans la stack.
 
+### Observabilité
+
+La stack expose Prometheus sur `19090`, Grafana sur `13000` et Loki sur `13100` par défaut.
+Les ports sont configurables avec `PROMETHEUS_HOST_PORT` et
+`GRAFANA_HOST_PORT` et `LOKI_HOST_PORT`. Les logs Docker des conteneurs DiddiFreeID
+sont centralisés dans Loki via Grafana Alloy. Le dashboard DiddiFreeID est provisionné automatiquement;
+voir [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md). Le mot de passe Grafana
+doit rester une variable Portainer et les volumes `prometheus_data`,
+`grafana_data`, `loki_data`, `alloy_data` et `jwtkeys` doivent être conservés lors des redeploys.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-116 tests. Ils tournent contre le vrai Postgres et le vrai Redis de
+Les tests tournent contre le vrai Postgres et le vrai Redis de
 `docker-compose`, sur une base `diddi_free_id_test` recréée à chaque session et
 migrée par Alembic — les migrations sont donc testées à chaque exécution.
 

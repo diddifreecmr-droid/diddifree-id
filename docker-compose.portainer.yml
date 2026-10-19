@@ -69,6 +69,8 @@ services:
         fi
         alembic upgrade head
         exec uvicorn identity_app.main:app --host 0.0.0.0 --port 8000
+    labels:
+      com.diddifree.observability: "true"
 
   account-purger:
     build:
@@ -84,6 +86,8 @@ services:
       app:
         condition: service_healthy
     command: ["sh", "-c", "while true; do python scripts/purge_deleted_accounts.py; sleep 3600; done"]
+    labels:
+      com.diddifree.observability: "true"
 
   db:
     image: postgres:16-alpine
@@ -101,6 +105,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    labels:
+      com.diddifree.observability: "true"
 
   redis:
     image: redis:7-alpine
@@ -111,7 +117,89 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    labels:
+      com.diddifree.observability: "true"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-19090}:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      com.diddifree.observability: "true"
+
+  loki:
+    image: grafana/loki:3.3.2
+    ports:
+      - "${LOKI_HOST_PORT:-13100}:3100"
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - loki_data:/loki
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      com.diddifree.observability: "true"
+
+  alloy:
+    image: grafana/alloy:v1.8.3
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy"]
+    depends_on:
+      loki:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    labels:
+      com.diddifree.observability: "true"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "${GRAFANA_HOST_PORT:-13000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-in-portainer}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      com.diddifree.observability: "true"
 
 volumes:
   pgdata:
   jwtkeys:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  alloy_data:

@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: DiddiFreeID Prometheus
+    uid: diddifree-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: DiddiFreeID Loki
+    uid: diddifree-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

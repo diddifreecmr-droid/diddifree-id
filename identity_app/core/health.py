@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from identity_app.core.database import engine
+from identity_app.core.metrics import observe_dependency_health
 from identity_app.core.settings import settings
 
 
@@ -78,8 +79,11 @@ def _check_otp_provider() -> dict[str, str]:
 
 async def _run_check(name: str, check) -> tuple[str, dict[str, str]]:
     try:
-        return name, await asyncio.wait_for(check(), timeout=settings.health_check_timeout_seconds)
+        result = await asyncio.wait_for(check(), timeout=settings.health_check_timeout_seconds)
+        observe_dependency_health(dependency=name, healthy=result.get("status") == "ok")
+        return name, result
     except Exception:
+        observe_dependency_health(dependency=name, healthy=False)
         return name, {"status": "error"}
 
 
@@ -93,6 +97,8 @@ async def readiness_report(app: FastAPI) -> tuple[bool, dict[str, Any]]:
         ),
     )
     checks["jwt_keys"] = _check_jwt_keys(app)
+    observe_dependency_health(dependency="jwt_keys", healthy=checks["jwt_keys"]["status"] == "ok")
     checks["otp_provider"] = _check_otp_provider()
+    observe_dependency_health(dependency="otp_provider", healthy=checks["otp_provider"]["status"] == "ok")
     ready = all(check["status"] == "ok" for check in checks.values())
     return ready, checks
