@@ -45,6 +45,7 @@ from identity_app.modules.identity.application.queries import (
     GetIdentitySummary,
     GetJwks,
     GetMyCapabilities,
+    GetSupportUserContext,
     GetUserById,
     ListUsers,
 )
@@ -312,6 +313,13 @@ def get_my_capabilities_query(
     users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> GetMyCapabilities:
     return GetMyCapabilities(capabilities=capabilities, users=users)
+
+
+def get_support_user_context_query(
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+    capabilities: SqlAlchemyCapabilityReadRepository = Depends(capability_read_repo),
+) -> GetSupportUserContext:
+    return GetSupportUserContext(users=users, capabilities=capabilities)
 
 
 def request_capability_command(

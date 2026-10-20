@@ -28,6 +28,7 @@ from identity_app.modules.identity.presentation.auth_router import router as aut
 from identity_app.modules.identity.presentation.jwks_router import router as jwks_router
 from identity_app.modules.identity.presentation.pro_router import router as pro_router
 from identity_app.modules.identity.presentation.reporting_router import router as reporting_router
+from identity_app.modules.identity.presentation.support_router import router as support_router
 from identity_app.modules.identity.presentation.users_router import router as users_router
 
 configure_logging(settings.log_level)
@@ -46,7 +47,7 @@ app.add_middleware(
     allow_origin_regex=settings.cors_allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Client-ID", "X-Service-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Client-ID", "X-Service-Key", "X-Request-ID"],
 )
 
 
@@ -134,6 +135,7 @@ app.include_router(reporting_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(jwks_router, prefix=settings.api_prefix)
 app.include_router(jwks_router)
+app.include_router(support_router)
 
 
 @app.get("/health", tags=["ops"])

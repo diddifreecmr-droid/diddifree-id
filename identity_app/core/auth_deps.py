@@ -223,6 +223,37 @@ async def require_pilotage_reporting(
     )
 
 
+async def require_support_context_reader(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize DiddiSupport to read the deliberately minimal user context."""
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification service requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("service") != "diddisupport":
+        raise ApiError(
+            403,
+            "SERVICE_SUPPORT_CONTEXT_FORBIDDEN",
+            "Seul DiddiSupport peut lire ce contexte.",
+        )
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au token service.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"identity:support-context:read"},
+    )
+
+
 async def require_backoffice_capability_read(
     request: Request,
     x_client_id: str | None = Header(default=None, alias="X-Client-ID"),

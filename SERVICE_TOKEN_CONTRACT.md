@@ -153,6 +153,7 @@ JWT. New tokens use:
 - `GET /admin/users/{user_id}/capabilities`: `capabilities:read` for the Backoffice service
 - `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`: `capabilities:access:write` for the Backoffice service
 - `GET /internal/pilotage/identity-summary?date=YYYY-MM-DD`: `identity:reporting:read` for Pilotage
+- `GET /internal/v1/support/users/{user_id}/context`: `identity:support-context:read` for DiddiSupport
 
 The identity summary is an aggregate response only. It contains the total
 number of users, users registered on the requested day, verified users, active

@@ -276,6 +276,32 @@ class ProMeResponse(BaseModel):
     capabilities: list[CapabilityResponse]
 
 
+class SupportCapabilityContext(BaseModel):
+    service: str
+    type: str
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    operational_status: str
+    status_source: str
+    updated_at: str
+
+
+class SupportUserContext(BaseModel):
+    display_name: str | None
+    phone_masked: str | None
+    email_masked: str | None
+    language: Literal["fr", "en"]
+    account_status: str
+    created_at: str | None
+    capabilities: list[SupportCapabilityContext]
+
+
+class SupportContextResponse(BaseModel):
+    protocol: Literal["diddi.context.v1"]
+    resource_type: Literal["user"]
+    resource_id: str
+    context: SupportUserContext
+
+
 class IdentityMetricResponse(BaseModel):
     name: str
     value: int
