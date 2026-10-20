@@ -75,6 +75,24 @@ The service token lifetime remains `SERVICE_TOKEN_LIFETIME_SECONDS`, currently
 600 seconds by default. DiddiSupport must send the exact same client ID in the
 token request and in `X-Client-ID` on the context request.
 
+## DiddiSupport calls to business modules
+
+DiddiSupport uses a separate client per target module. These clients authorize
+only the matching support-context read scope; they do not authorize writes,
+admin operations or access to another module's context.
+
+| Client ID | Audience | Scope |
+| --- | --- | --- |
+| `diddisupport-staging-diddigo` | `diddigo` | `diddigo:support-context:read` |
+| `diddisupport-staging-diddifood` | `diddifood` | `diddifood:support-context:read` |
+| `diddisupport-staging-diddisend` | `diddisend` | `diddisend:support-context:read` |
+| `diddisupport-staging-diddipay` | `diddipay` | `diddipay:support-context:read` |
+
+Each credential is stored locally in `diddisupport-staging.secrets.env`, which
+is ignored by Git through the `*.secrets.env` rule. DiddiSupport obtains a
+fresh token from `/identity/v1/auth/service/token` when needed; access tokens
+are intentionally not stored in this file.
+
 ## Error contract
 
 - `401 TOKEN_MISSING`, `SERVICE_TOKEN_INVALID` or `SERVICE_CLIENT_ID_INVALID`:

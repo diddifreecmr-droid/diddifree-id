@@ -22,3 +22,4 @@ odoo-staging-pilotage.secrets.env
 pilotage-staging-diddifood.secrets.env
 diddigo-staging-diddipay.secrets.env
 diddicomms-staging.secrets.env
+*.secrets.env
