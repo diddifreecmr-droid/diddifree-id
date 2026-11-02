@@ -60,6 +60,21 @@ class UserUpdated(DomainEvent):
 
 
 @dataclass
+class UserReviewAccountChanged(DomainEvent):
+    """Notify modules to refresh their local Google Play review projection."""
+
+    old_is_review_account: bool = False
+    new_is_review_account: bool = False
+    name: str = field(init=False, default="user.review_account_changed")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "old_is_review_account": self.old_is_review_account,
+            "new_is_review_account": self.new_is_review_account,
+        }
+
+
+@dataclass
 class UserRoleChanged(DomainEvent):
     old_role: str = ""
     new_role: str = ""

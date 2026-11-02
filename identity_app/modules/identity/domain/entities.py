@@ -133,6 +133,7 @@ class User:
     #: keeps `role` — and therefore every permission they already had — until
     #: approval.
     requested_role: UserRole | None = None
+    is_review_account: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
     deletion_requested_at: datetime | None = None
@@ -241,6 +242,24 @@ class UserRoleChange:
     requested_role: UserRole | None = None
     reason: str | None = None
     changed_by: UUID | None = None
+
+    @staticmethod
+    def new_id() -> UUID:
+        return uuid4()
+
+
+@dataclass
+class UserReviewAccountChange:
+    """Audit row for the isolated Google Play review-account flag."""
+
+    id: UUID
+    user_id: UUID
+    from_is_review_account: bool
+    to_is_review_account: bool
+    reason: str
+    changed_at: datetime
+    changed_by: UUID | None = None
+    changed_by_client_id: str | None = None
 
     @staticmethod
     def new_id() -> UUID:

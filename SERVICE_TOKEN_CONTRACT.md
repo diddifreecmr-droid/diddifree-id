@@ -152,6 +152,7 @@ JWT. New tokens use:
 - `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`: `capabilities:write`
 - `GET /admin/users/{user_id}/capabilities`: `capabilities:read` for the Backoffice service
 - `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`: `capabilities:access:write` for the Backoffice service
+- `PATCH /admin/users/{user_id}/review-account`: `review-accounts:write` for the Backoffice service
 - `GET /internal/pilotage/identity-summary?date=YYYY-MM-DD`: `identity:reporting:read` for Pilotage
 - `GET /internal/v1/support/users/{user_id}/context`: `identity:support-context:read` for DiddiSupport
 

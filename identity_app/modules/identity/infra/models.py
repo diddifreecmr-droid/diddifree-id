@@ -54,6 +54,11 @@ class UserModel(Base):
     # Role awaiting a KYC decision. NULL means nothing is pending — which is
     # also what makes `WHERE requested_role IS NOT NULL` the review queue.
     requested_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Google Play review accounts are isolated by downstream modules. This is
+    # an identity-owned marker, not a business role or a frontend preference.
+    is_review_account: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
@@ -240,6 +245,35 @@ class UserStatusHistoryModel(Base):
     to_status: Mapped[str] = mapped_column(String(30), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class UserReviewAccountHistoryModel(Base):
+    """Immutable audit trail for Google Play review account decisions."""
+
+    __tablename__ = "user_review_account_history"
+    __table_args__ = (
+        Index("idx_review_account_history_user", "user_id"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_is_review_account: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    to_is_review_account: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    changed_by_client_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )

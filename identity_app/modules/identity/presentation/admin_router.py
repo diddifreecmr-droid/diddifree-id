@@ -10,14 +10,16 @@ from hashlib import sha256
 from secrets import token_urlsafe
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from identity_app.core.auth_deps import (
     require_admin,
     require_backoffice_capability_read,
     require_backoffice_capability_write,
+    require_backoffice_review_account_write,
 )
 from identity_app.core.deps import (
+    change_review_account_command,
     change_status_command,
     decide_kyc_command,
     get_my_capabilities_query,
@@ -26,7 +28,12 @@ from identity_app.core.deps import (
     update_capability_access_command,
 )
 from identity_app.core.errors import ApiError
-from identity_app.modules.identity.application.commands import ChangeStatus, DecideKyc, UpdateCapabilityAccess
+from identity_app.modules.identity.application.commands import (
+    ChangeReviewAccount,
+    ChangeStatus,
+    DecideKyc,
+    UpdateCapabilityAccess,
+)
 from identity_app.modules.identity.application.queries import GetMyCapabilities, ListUsers
 from identity_app.modules.identity.domain.entities import User
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
@@ -37,6 +44,8 @@ from identity_app.modules.identity.presentation.schemas import (
     ChangeStatusRequest,
     KycDecisionRequest,
     ProMeResponse,
+    ReviewAccountRequest,
+    ReviewAccountResponse,
     ServiceClientListResponse,
     ServiceClientResponse,
     ServiceClientSecretRotationResponse,
@@ -154,6 +163,32 @@ async def change_status(
         # the admin, which is the whole point of the transverse traceability
         # requirement in the cahier des charges.
         changed_by=admin.id,
+    )
+
+
+@router.patch(
+    "/users/{user_id}/review-account",
+    response_model=ReviewAccountResponse,
+)
+async def change_review_account(
+    user_id: UUID,
+    payload: ReviewAccountRequest,
+    request: Request,
+    caller: User | None = Depends(require_backoffice_review_account_write),
+    command: ChangeReviewAccount = Depends(change_review_account_command),
+) -> dict:
+    """Enable or disable an isolated Google Play review account.
+
+    The marker is deliberately absent from public profile responses. This
+    privileged endpoint provides the only supported management surface.
+    """
+    claims = getattr(request.state, "claims", {})
+    return await command(
+        user_id=user_id,
+        is_review_account=payload.is_review_account,
+        reason=payload.reason,
+        changed_by=caller.id if caller else None,
+        changed_by_client_id=None if caller else claims.get("client_id"),
     )
 
 

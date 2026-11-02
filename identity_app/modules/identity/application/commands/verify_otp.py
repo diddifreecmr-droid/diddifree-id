@@ -196,7 +196,10 @@ class VerifyOtp:
             )
 
         access_token = self.tokens.issue_access_token(
-            user_id=user.id, role=user.role.value, status=user.status.value,
+            user_id=user.id,
+            role=user.role.value,
+            status=user.status.value,
+            is_review_account=user.is_review_account,
         )
         return {
             "access_token": access_token,

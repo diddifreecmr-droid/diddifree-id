@@ -281,6 +281,7 @@ bon comportement de cache sans code particulier.
   "sub": "b3e1...",
   "role": "user",
   "status": "active",
+  "is_review_account": false,
   "iss": "diddifree-id",
   "iat": 1753700000,
   "exp": 1753700900
@@ -295,6 +296,11 @@ immédiate).
 `status` : `pending_verification`, `pending_kyc`, `active`, `suspended`. Les statuts `deletion_pending`
 et `deleted` ne sont jamais émis dans un nouveau JWT. La règle ci-dessus est
 inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc un module refuse d'agir.
+
+`is_review_account` est un booléen strict, toujours présent dans les nouveaux tokens. Les anciens tokens
+qui ne le contiennent pas doivent être interprétés comme `false` pendant le déploiement progressif. Une
+valeur autre que `true` ou `false` rend le token invalide. Ce claim est un signal backend pour isoler les
+parcours Google Play Review ; il ne doit pas être affiché ni contrôlé par le frontend.
 
 **Comportement attendu côté module en cas de token expiré** : renvoyer `401` avec
 `error.code = "TOKEN_EXPIRED"` à son propre client — c'est au frontend d'appeler
@@ -699,6 +705,25 @@ d'événements réagissent sans attendre l'expiration du JWT en cours).
   modules pour la revue d'un seul.
 - Une réactivation émet `user.updated` (voir section 4).
 
+### `PATCH /admin/users/{user_id}/review-account`
+
+Active ou désactive le marqueur d'un compte Google Play Review.
+
+**Requête** : `{ "is_review_account": true, "reason": "Google Play review account" }`
+**Réponse `200`** : `{ "id": "...", "is_review_account": true }`
+
+Autorisation : administrateur humain, ou token `client_credentials` du service `backoffice`, avec
+`aud=diddifree-id`, `X-Client-ID` identique au claim `client_id` et scope `review-accounts:write`.
+
+**Implémentation :**
+- la décision est enregistrée dans `identity.user_review_account_history` avec le motif et l'acteur humain
+  ou le `client_id` Backoffice ;
+- tous les refresh tokens sont immédiatement révoqués ; le JWT déjà présenté reste valable jusqu'à son
+  expiration normale (15 minutes maximum) ;
+- l'événement `user.review_account_changed` est publié afin que DiddiGo et les autres modules rafraîchissent
+  leur projection locale ;
+- le marqueur n'est pas inclus dans `GET /users/me`, `PATCH /users/me` ou la réponse OTP.
+
 ---
 
 ## 4. Événements internes (bus, pas HTTP)
@@ -721,12 +746,12 @@ Format d'un événement publié par DiddiFreeID :
 | `user.updated` | `changed_fields`, et `old_status`/`new_status`/`reason` pour une réactivation | Invalider tout cache local de profil pour ce `user_id` |
 | `user.role_changed` | `old_role`, `new_role` | Ride : activer les fonctionnalités chauffeur. Skill : mettre à jour le Talent Pool. |
 | `user.suspended` | `old_status`, `new_status`, `reason` | Wallet : geler les transactions sortantes. Ride : désactiver la disponibilité chauffeur. |
+| `user.review_account_changed` | `old_is_review_account`, `new_is_review_account` | DiddiGo : mettre à jour l'isolation locale du compte, chauffeur et matching Review. |
 
-**Implémentation — il n'y a toujours que ces quatre noms, et c'est délibéré.** Une réactivation de compte et
-l'ouverture d'un dossier KYC passent toutes deux par `user.updated`. Inventer `user.reactivated` ou
-`user.kyc_requested` reviendrait à publier des événements auxquels personne n'est abonné, donc des
-notifications silencieusement perdues. Ce que ces cas ont besoin de dire — « votre copie du profil est
-périmée » — est exactement ce que `user.updated` signifie déjà.
+Une réactivation de compte et l'ouverture d'un dossier KYC passent toujours par `user.updated` : inventer
+`user.reactivated` ou `user.kyc_requested` reviendrait à publier des événements auxquels personne n'est
+abonné. `user.review_account_changed` est volontairement distinct, car les modules doivent modifier une
+projection d'isolation métier et non simplement invalider un cache de profil.
 
 ### Le transport : Redis Streams
 

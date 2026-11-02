@@ -290,6 +290,24 @@ async def require_backoffice_capability_write(
     )
 
 
+async def require_backoffice_review_account_write(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or Backoffice to manage Google Play review accounts."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="review-accounts:write",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
 async def _require_admin_or_backoffice_capability(
     *,
     request: Request,

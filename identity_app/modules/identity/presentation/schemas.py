@@ -133,6 +133,11 @@ class ChangeStatusRequest(BaseModel):
     reason: str | None = Field(default=None, examples=["Signalement fraude, ticket #883"])
 
 
+class ReviewAccountRequest(BaseModel):
+    is_review_account: bool
+    reason: str = Field(min_length=1, max_length=1000, examples=["Google Play review account"])
+
+
 class KycDecisionRequest(BaseModel):
     """Resolution of a pending role request.
 
@@ -214,6 +219,11 @@ class UserProfile(BaseModel):
     #: Role awaiting a KYC decision, `null` when nothing is pending. Additive to
     #: the shape published in contract §2.
     requested_role: str | None = None
+
+
+class ReviewAccountResponse(BaseModel):
+    id: str
+    is_review_account: bool
 
 
 class RegisterResponse(BaseModel):

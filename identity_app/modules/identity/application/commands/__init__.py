@@ -19,6 +19,7 @@ from identity_app.modules.identity.application.commands.capabilities import (
     UpdateCapabilityAccess,
     UpdateCapabilityProjection,
 )
+from identity_app.modules.identity.application.commands.change_review_account import ChangeReviewAccount
 from identity_app.modules.identity.application.commands.change_role import ChangeRole
 from identity_app.modules.identity.application.commands.change_status import ChangeStatus
 from identity_app.modules.identity.application.commands.decide_kyc import DecideKyc
@@ -35,6 +36,7 @@ from identity_app.modules.identity.application.commands.verify_otp import Verify
 
 __all__ = [
     "ChangeRole",
+    "ChangeReviewAccount",
     "RequestCapability",
     "UpdateCapabilityAccess",
     "UpdateCapabilityProjection",

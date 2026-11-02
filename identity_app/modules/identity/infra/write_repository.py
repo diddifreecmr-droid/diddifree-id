@@ -25,6 +25,7 @@ from identity_app.modules.identity.domain.entities import (
     RefreshToken,
     User,
     UserLanguage,
+    UserReviewAccountChange,
     UserRole,
     UserRoleChange,
     UserStatus,
@@ -45,6 +46,7 @@ def _user_to_domain(row: orm.UserModel) -> User:
         role=UserRole(row.role),
         status=UserStatus(row.status),
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
+        is_review_account=row.is_review_account,
         created_at=row.created_at,
         updated_at=row.updated_at,
         deletion_requested_at=row.deletion_requested_at,
@@ -78,6 +80,7 @@ class SqlAlchemyUserWriteRepository:
                 role=user.role.value,
                 status=user.status.value,
                 requested_role=user.requested_role.value if user.requested_role else None,
+                is_review_account=user.is_review_account,
                 created_at=user.created_at or now,
                 updated_at=now,
                 deletion_requested_at=user.deletion_requested_at,
@@ -98,6 +101,7 @@ class SqlAlchemyUserWriteRepository:
             row.role = user.role.value
             row.status = user.status.value
             row.requested_role = user.requested_role.value if user.requested_role else None
+            row.is_review_account = user.is_review_account
             row.deletion_requested_at = user.deletion_requested_at
             row.deletion_scheduled_for = user.deletion_scheduled_for
             row.deletion_previous_status = (
@@ -165,6 +169,21 @@ class SqlAlchemyUserWriteRepository:
                 requested_role=change.requested_role.value if change.requested_role else None,
                 reason=change.reason,
                 changed_by=change.changed_by,
+                changed_at=change.changed_at,
+            ),
+        )
+        await self._session.flush()
+
+    async def record_review_account_change(self, change: UserReviewAccountChange) -> None:
+        self._session.add(
+            orm.UserReviewAccountHistoryModel(
+                id=change.id,
+                user_id=change.user_id,
+                from_is_review_account=change.from_is_review_account,
+                to_is_review_account=change.to_is_review_account,
+                reason=change.reason,
+                changed_by=change.changed_by,
+                changed_by_client_id=change.changed_by_client_id,
                 changed_at=change.changed_at,
             ),
         )

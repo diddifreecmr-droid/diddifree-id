@@ -22,6 +22,7 @@ from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
     User,
+    UserReviewAccountChange,
     UserRoleChange,
     UserStatusChange,
 )
@@ -54,6 +55,10 @@ class UserWriteRepository(Protocol):
     async def record_role_change(self, change: UserRoleChange) -> None:
         """Append to `identity.user_role_history` — role grants and KYC
         refusals alike, with the caller's `reason`."""
+        ...
+
+    async def record_review_account_change(self, change: UserReviewAccountChange) -> None:
+        """Append the review-account decision to its immutable audit trail."""
         ...
 
     async def commit(self) -> None:

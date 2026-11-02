@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from identity_app.core.database import get_session
 from identity_app.core.redis import get_redis  # noqa: F401 — re-exported
 from identity_app.modules.identity.application.commands import (
+    ChangeReviewAccount,
     ChangeRole,
     ChangeStatus,
     DecideKyc,
@@ -275,6 +276,20 @@ def change_status_command(
     cache: RedisProfileCache = Depends(profile_cache),
 ) -> ChangeStatus:
     return ChangeStatus(users=users, refresh_tokens=refresh_tokens, events=events, cache=cache)
+
+
+def change_review_account_command(
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> ChangeReviewAccount:
+    return ChangeReviewAccount(
+        users=users,
+        refresh_tokens=refresh_tokens,
+        events=events,
+        cache=cache,
+    )
 
 
 def request_account_deletion_command(

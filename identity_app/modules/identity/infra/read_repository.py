@@ -35,6 +35,7 @@ def _to_domain(row: orm.UserModel) -> User:
         role=UserRole(row.role),
         status=UserStatus(row.status),
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
+        is_review_account=row.is_review_account,
         created_at=row.created_at,
         updated_at=row.updated_at,
         deletion_requested_at=row.deletion_requested_at,
