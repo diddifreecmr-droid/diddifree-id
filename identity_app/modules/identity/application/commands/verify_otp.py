@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hmac import compare_digest
 
 from identity_app.core.errors import ApiError
 from identity_app.core.security import verify_otp_code
@@ -36,6 +37,7 @@ from identity_app.modules.identity.domain.interfaces import (
     UserActivityRepository,
     UserWriteRepository,
 )
+from identity_app.modules.identity.infra.rate_limiter import RedisReviewStaticOtpRateLimiter
 from identity_app.modules.identity.infra.token_service import TokenService
 
 
@@ -48,6 +50,7 @@ class VerifyOtp:
     events: EventPublisher
     cache: ProfileCache
     activity: UserActivityRepository | None = None
+    review_limiter: RedisReviewStaticOtpRateLimiter | None = None
 
     async def __call__(
         self,
@@ -62,6 +65,18 @@ class VerifyOtp:
         if bool(phone) == bool(email):
             raise ApiError(422, "IDENTIFIER_REQUIRED", "Exactement un téléphone ou un e-mail est requis.")
         now = datetime.now(UTC)
+
+        # The Review branch is intentionally selected from the identity record,
+        # never from a request flag. A regular account can therefore not opt
+        # into static-code authentication by forging a payload field.
+        user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
+        if user is not None and user.is_review_account and settings.review_static_otp_enabled:
+            return await self._verify_review_code(
+                user=user,
+                code=code,
+                device_info=device_info,
+                now=now,
+            )
 
         otp = await self.otps.find_latest_active(phone, email)
         if otp is None:
@@ -92,7 +107,6 @@ class VerifyOtp:
 
         await self.otps.mark_consumed(otp.id)
 
-        user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
         if user is None:
             # Only reachable if the account was deleted between the request and
             # the verification. Account creation belongs to `/auth/register`
@@ -100,6 +114,67 @@ class VerifyOtp:
             # no `full_name` and bypass the 409-on-duplicate rule.
             raise ApiError(404, "USER_NOT_FOUND", "Aucun compte n'est associé à cet identifiant.")
 
+        return await self._complete_authentication(user=user, device_info=device_info, now=now)
+
+    async def _verify_review_code(
+        self,
+        *,
+        user,
+        code: str,
+        device_info: str | None,
+        now: datetime,
+    ) -> dict:
+        if self.review_limiter is None:
+            raise ApiError(503, "REVIEW_OTP_RATE_LIMIT_UNAVAILABLE", "Connexion Review indisponible.")
+        expected_code = settings.review_static_otp_codes.get(str(user.id))
+        if expected_code is None:
+            raise ApiError(
+                503,
+                "REVIEW_LOGIN_NOT_CONFIGURED",
+                "La connexion du compte Review n'est pas configurée.",
+            )
+        try:
+            locked_for = await self.review_limiter.lock_seconds_remaining(str(user.id))
+        except RuntimeError as exc:
+            raise ApiError(503, "REVIEW_OTP_RATE_LIMIT_UNAVAILABLE", "Connexion Review indisponible.") from exc
+        if locked_for > 0:
+            raise ApiError(
+                429,
+                "REVIEW_OTP_TOO_MANY_ATTEMPTS",
+                "Trop de tentatives. Réessayez plus tard.",
+                {"retry_after_seconds": locked_for},
+            )
+
+        if not compare_digest(code, expected_code):
+            try:
+                attempts, locked_for = await self.review_limiter.register_failure(
+                    str(user.id),
+                    max_attempts=settings.review_static_otp_max_attempts,
+                    lock_seconds=settings.review_static_otp_lock_seconds,
+                )
+            except RuntimeError as exc:
+                raise ApiError(503, "REVIEW_OTP_RATE_LIMIT_UNAVAILABLE", "Connexion Review indisponible.") from exc
+            if locked_for > 0:
+                raise ApiError(
+                    429,
+                    "REVIEW_OTP_TOO_MANY_ATTEMPTS",
+                    "Trop de tentatives. Réessayez plus tard.",
+                    {"retry_after_seconds": locked_for},
+                )
+            raise ApiError(
+                400,
+                "OTP_INVALID",
+                "Le code OTP est invalide.",
+                {"attempts_remaining": settings.review_static_otp_max_attempts - attempts},
+            )
+
+        try:
+            await self.review_limiter.reset_failures(str(user.id))
+        except RuntimeError as exc:
+            raise ApiError(503, "REVIEW_OTP_RATE_LIMIT_UNAVAILABLE", "Connexion Review indisponible.") from exc
+        return await self._complete_authentication(user=user, device_info=device_info, now=now)
+
+    async def _complete_authentication(self, *, user, device_info: str | None, now: datetime) -> dict:
         if user.status == UserStatus.DELETED:
             await self.otps.commit()
             raise ApiError(410, "ACCOUNT_DELETED", "Ce compte a été définitivement supprimé.")

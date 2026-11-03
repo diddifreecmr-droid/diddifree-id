@@ -145,3 +145,67 @@ async def test_malformed_review_claim_is_rejected(client, user_session):
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "TOKEN_INVALID"
+
+
+async def test_review_account_can_use_its_configured_static_code(
+    client, admin_session, user_session, monkeypatch,
+):
+    """A Review login never needs an OTP row or an outbound provider."""
+    user_id = user_session["user"]["id"]
+    enabled = await client.patch(
+        f"{API}/admin/users/{user_id}/review-account",
+        json={"is_review_account": True, "reason": "Google Play review account"},
+        headers=admin_session["headers"],
+    )
+    assert enabled.status_code == 200
+
+    monkeypatch.setattr(settings, "review_static_otp_enabled", True)
+    monkeypatch.setattr(settings, "review_static_otp_codes_json", json.dumps({user_id: "246810"}))
+
+    requested = await client.post(f"{API}/auth/otp/request", json={"phone": user_session["user"]["phone"]})
+    assert requested.status_code == 200
+    assert requested.json() == {
+        "expires_in_seconds": 0,
+        "retry_after_seconds": 0,
+        "channel": "review",
+    }
+
+    logged_in = await client.post(
+        f"{API}/auth/otp/verify",
+        json={"phone": user_session["user"]["phone"], "code": "246810"},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    assert _claims(logged_in.json()["access_token"])["is_review_account"] is True
+
+
+async def test_review_static_code_is_locked_after_failed_attempts(
+    client, admin_session, user_session, monkeypatch,
+):
+    user_id = user_session["user"]["id"]
+    enabled = await client.patch(
+        f"{API}/admin/users/{user_id}/review-account",
+        json={"is_review_account": True, "reason": "Google Play review account"},
+        headers=admin_session["headers"],
+    )
+    assert enabled.status_code == 200
+
+    monkeypatch.setattr(settings, "review_static_otp_enabled", True)
+    monkeypatch.setattr(settings, "review_static_otp_codes_json", json.dumps({user_id: "246810"}))
+    monkeypatch.setattr(settings, "review_static_otp_max_attempts", 3)
+    monkeypatch.setattr(settings, "review_static_otp_lock_seconds", 120)
+    payload = {"phone": user_session["user"]["phone"], "code": "000000"}
+
+    for remaining in (2, 1):
+        failed = await client.post(f"{API}/auth/otp/verify", json=payload)
+        assert failed.status_code == 400
+        assert failed.json()["error"]["details"]["attempts_remaining"] == remaining
+
+    blocked = await client.post(f"{API}/auth/otp/verify", json=payload)
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "REVIEW_OTP_TOO_MANY_ATTEMPTS"
+
+    still_blocked = await client.post(
+        f"{API}/auth/otp/verify",
+        json={"phone": user_session["user"]["phone"], "code": "246810"},
+    )
+    assert still_blocked.status_code == 429

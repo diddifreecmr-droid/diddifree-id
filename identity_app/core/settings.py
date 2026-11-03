@@ -11,6 +11,10 @@ Instantiated at module import time as `settings` — importers do
 
 from __future__ import annotations
 
+import json
+import re
+from uuid import UUID
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +66,14 @@ class Settings(BaseSettings):
     otp_max_attempts: int = 5
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
     otp_log_plaintext: bool = True
+    # Google Play reviewers keep the normal six-digit-code UI, but their code
+    # is provisioned out-of-band rather than delivered by an OTP provider.
+    # The map is deliberately a JSON string so it can be set as one Portainer
+    # secret: {"<user_uuid>": "123456"}. Never commit its real value.
+    review_static_otp_enabled: bool = False
+    review_static_otp_codes_json: str = ""
+    review_static_otp_max_attempts: int = 5
+    review_static_otp_lock_seconds: int = 900
 
     # The request body may override this with `sms`, `email`, `telegram` or `whatsapp`.
     otp_provider: str = "logging"
@@ -105,6 +117,40 @@ class Settings(BaseSettings):
     def cors_allowed_origin_list(self) -> list[str]:
         """Return configured browser origins without empty entries."""
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    @property
+    def review_static_otp_codes(self) -> dict[str, str]:
+        """Return the reviewed, per-user static-code map from configuration.
+
+        Parsing is intentionally strict. A malformed review configuration must
+        stop the identity service rather than quietly creating a bypass or
+        falling back to an unexpected delivery provider.
+        """
+        if not self.review_static_otp_enabled:
+            return {}
+        try:
+            raw_codes = json.loads(self.review_static_otp_codes_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("REVIEW_STATIC_OTP_CODES_JSON doit être un objet JSON valide.") from exc
+        if not isinstance(raw_codes, dict) or not raw_codes:
+            raise ValueError("REVIEW_STATIC_OTP_CODES_JSON doit contenir au moins un code par user_id.")
+        if self.review_static_otp_max_attempts < 1:
+            raise ValueError("REVIEW_STATIC_OTP_MAX_ATTEMPTS doit être supérieur à zéro.")
+        if self.review_static_otp_lock_seconds < 1:
+            raise ValueError("REVIEW_STATIC_OTP_LOCK_SECONDS doit être supérieur à zéro.")
+
+        codes: dict[str, str] = {}
+        for raw_user_id, code in raw_codes.items():
+            if not isinstance(raw_user_id, str) or not isinstance(code, str):
+                raise ValueError("Chaque code Review doit être indexé par un user_id UUID et être une chaîne.")
+            try:
+                user_id = str(UUID(raw_user_id))
+            except ValueError as exc:
+                raise ValueError("REVIEW_STATIC_OTP_CODES_JSON contient un user_id invalide.") from exc
+            if not re.fullmatch(r"\d{6}", code):
+                raise ValueError("Chaque code Review doit contenir exactement six chiffres.")
+            codes[user_id] = code
+        return codes
 
 
 settings = Settings()

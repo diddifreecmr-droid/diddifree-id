@@ -83,6 +83,21 @@ class RequestOtp:
         # A caller who requests a code for an unknown identifier simply never
         # receives one, and `verify` answers the usual `400 OTP_INVALID`.
         if user is not None:
+            if user.is_review_account and settings.review_static_otp_enabled:
+                # A Review code is configured out-of-band in Portainer. Do not
+                # create a database OTP, deliver a message or log its value.
+                if str(user.id) not in settings.review_static_otp_codes:
+                    raise ApiError(
+                        503,
+                        "REVIEW_LOGIN_NOT_CONFIGURED",
+                        "La connexion du compte Review n'est pas configurée.",
+                    )
+                await self.rate_limiter.mark_identifier_sent(identifier, settings.otp_rate_limit_seconds)
+                return {
+                    "expires_in_seconds": 0,
+                    "retry_after_seconds": settings.otp_rate_limit_seconds,
+                    "channel": "review",
+                }
             if selected_channel == "email" and not user.email:
                 raise ApiError(
                     409,

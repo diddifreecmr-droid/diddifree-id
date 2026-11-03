@@ -81,6 +81,25 @@ WhatsApp nécessitent un numéro de téléphone. Dans tous les cas,
 `OTP_LOG_PLAINTEXT=true` garde le code visible dans les logs ; `false` le
 masque.
 
+Les comptes Google Play Review restent sur le même écran OTP, sans mot de
+passe ni transport de message. Après avoir marqué le compte avec
+`PATCH /identity/v1/admin/users/{user_id}/review-account`, activer uniquement
+en staging `REVIEW_STATIC_OTP_ENABLED=true` et placer dans le secret Portainer
+`REVIEW_STATIC_OTP_CODES_JSON` une carte JSON de codes distincts par utilisateur :
+`{"<user_id>":"123456"}`. Ces codes ne sont ni journalisés, ni stockés en base,
+ni versionnés. `POST /auth/otp/request` répond alors avec `channel=review` et
+`POST /auth/otp/verify` valide le code fourni. Cinq erreurs verrouillent ce
+compte quinze minutes par défaut; changer la valeur du secret et redéployer
+fait tourner un code.
+
+Pour créer ce compte contrôlé sans l'inscription publique ni un OTP initial,
+exécuter dans le conteneur `app` :
+```bash
+python scripts/create_review_account.py --email google-reviewer@example.com --name "Google Play reviewer"
+```
+La commande affiche seulement `review_user_id`; configurer ensuite son code
+dans Portainer et communiquer ce code par le canal de revue convenu.
+
 Pour ajouter un email ou un téléphone à un compte déjà authentifié, utiliser
 `POST /identity/v1/users/me/contact/request`, puis
 `POST /identity/v1/users/me/contact/verify`. Le contact n'est enregistré

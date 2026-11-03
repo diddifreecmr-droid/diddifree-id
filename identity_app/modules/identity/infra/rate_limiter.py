@@ -66,3 +66,60 @@ class RedisOtpRateLimiter:
         except Exception:
             logger.warning("rate-limit OTP indisponible (ip), passage en fail-open", exc_info=True)
             return True
+
+
+class RedisReviewStaticOtpRateLimiter:
+    """Protect the deliberately long-lived Review code from online guessing.
+
+    Unlike a regular OTP, a Review code does not expire after five minutes.
+    The limiter therefore fails closed: if Redis is unavailable, a static code
+    cannot be verified rather than becoming a one-million-value password with
+    no online defence.
+    """
+
+    def __init__(self, redis: Redis) -> None:
+        self._redis = redis
+
+    @staticmethod
+    def _failures_key(user_id: str) -> str:
+        return f"identity:review-static-otp:failures:{user_id}"
+
+    @staticmethod
+    def _lock_key(user_id: str) -> str:
+        return f"identity:review-static-otp:lock:{user_id}"
+
+    async def lock_seconds_remaining(self, user_id: str) -> int:
+        try:
+            return max(await self._redis.ttl(self._lock_key(user_id)), 0)
+        except Exception as exc:
+            logger.error("limiteur Review OTP indisponible", exc_info=True)
+            raise RuntimeError("REVIEW_OTP_RATE_LIMIT_UNAVAILABLE") from exc
+
+    async def register_failure(
+        self,
+        user_id: str,
+        *,
+        max_attempts: int,
+        lock_seconds: int,
+    ) -> tuple[int, int]:
+        """Return `(attempts, lock_seconds_remaining)` after one failure."""
+        try:
+            failures_key = self._failures_key(user_id)
+            attempts = await self._redis.incr(failures_key)
+            if attempts == 1:
+                await self._redis.expire(failures_key, lock_seconds)
+            if attempts >= max_attempts:
+                await self._redis.set(self._lock_key(user_id), "1", ex=lock_seconds)
+                await self._redis.delete(failures_key)
+                return attempts, lock_seconds
+            return attempts, 0
+        except Exception as exc:
+            logger.error("limiteur Review OTP indisponible", exc_info=True)
+            raise RuntimeError("REVIEW_OTP_RATE_LIMIT_UNAVAILABLE") from exc
+
+    async def reset_failures(self, user_id: str) -> None:
+        try:
+            await self._redis.delete(self._failures_key(user_id))
+        except Exception as exc:
+            logger.error("limiteur Review OTP indisponible", exc_info=True)
+            raise RuntimeError("REVIEW_OTP_RATE_LIMIT_UNAVAILABLE") from exc

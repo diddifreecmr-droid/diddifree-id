@@ -165,6 +165,16 @@ le canal, le code reste visible lorsque `OTP_LOG_PLAINTEXT=true`.
 `channel` vaut `sms`, `email`, `telegram`, `whatsapp` ou `logging` (ce dernier uniquement pour le
 mode développement/staging sans transport configuré).
 
+**Comptes Google Play Review.** Un compte explicitement marqué `is_review_account=true` peut utiliser le
+mode contrôlé `REVIEW_STATIC_OTP_ENABLED=true`. Dans ce seul cas, la réponse retourne
+`{ "expires_in_seconds": 0, "channel": "review" }` : aucun OTP n'est créé, envoyé ou journalisé. Le
+frontend conserve son écran de saisie à six chiffres et invite le testeur à saisir le code fourni avec son
+compte. Le code est unique par `user_id`, configuré dans le secret Portainer
+`REVIEW_STATIC_OTP_CODES_JSON`, jamais dans Git ni la base de données.
+Un compte Review est créé par l'opération contrôlée
+`python scripts/create_review_account.py --email ...`; cette commande active le
+compte, marque `is_review_account=true` et affiche seulement son `user_id`.
+
 **Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si un compte téléphone n'a pas
 d'e-mail), `422` (`SMS_REQUIRES_PHONE`, `TELEGRAM_REQUIRES_PHONE` ou `WHATSAPP_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
 `details.retry_after_seconds`)
@@ -221,6 +231,10 @@ même machine. Les deux répondent `429 OTP_RATE_LIMITED`.
 - `403 USER_SUSPENDED` si le compte est suspendu.
 - Si un rôle soumis à KYC a été demandé avant cette première vérification, le compte passe en
   `pending_kyc` au lieu d'`active` (voir section 3, `PATCH /users/{id}/role`).
+- Un compte Review configuré valide son code fixe uniquement si son marqueur serveur est actif. Il n'y a pas
+  d'expiration ni de consommation du code, mais cinq échecs bloquent ce seul compte pendant 900 secondes par
+  défaut (`429 REVIEW_OTP_TOO_MANY_ATTEMPTS`). Redis indisponible répond `503 REVIEW_OTP_RATE_LIMIT_UNAVAILABLE` :
+  ce chemin échoue volontairement de façon sûre.
 
 ---
 

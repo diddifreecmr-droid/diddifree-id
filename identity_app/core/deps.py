@@ -53,7 +53,7 @@ from identity_app.modules.identity.application.queries import (
 from identity_app.modules.identity.domain.interfaces import OtpSender
 from identity_app.modules.identity.infra.cache import RedisProfileCache
 from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
-from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
+from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter, RedisReviewStaticOtpRateLimiter
 from identity_app.modules.identity.infra.read_repository import (
     SqlAlchemyCapabilityReadRepository,
     SqlAlchemyUserReadRepository,
@@ -159,6 +159,10 @@ def otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisOtpRateLimiter:
     return RedisOtpRateLimiter(redis)
 
 
+def review_static_otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisReviewStaticOtpRateLimiter:
+    return RedisReviewStaticOtpRateLimiter(redis)
+
+
 def otp_sender(request: Request) -> OtpSender:
     return OtpSenderRouter(getattr(request.app.state, "telegram_client", None))
 
@@ -211,6 +215,7 @@ def verify_otp_command(
     events: RedisEventPublisher = Depends(event_publisher),
     cache: RedisProfileCache = Depends(profile_cache),
     activity: SqlAlchemyUserActivityWriteRepository = Depends(user_activity_write_repo),
+    review_limiter: RedisReviewStaticOtpRateLimiter = Depends(review_static_otp_rate_limiter),
 ) -> VerifyOtp:
     return VerifyOtp(
         otps=otps,
@@ -220,6 +225,7 @@ def verify_otp_command(
         events=events,
         cache=cache,
         activity=activity,
+        review_limiter=review_limiter,
     )
 
 

@@ -32,6 +32,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     telegram_client: TelegramClient | None = None
     telegram_task: asyncio.Task | None = None
     try:
+        # Validate before serving traffic. Review accounts must never silently
+        # fall back to a normal OTP delivery because a Portainer secret is bad.
+        if settings.review_static_otp_enabled:
+            _review_static_otp_codes = settings.review_static_otp_codes
+
         if settings.otp_provider in {"email", "smtp"} and (
             not settings.smtp_host
             or not settings.smtp_username
