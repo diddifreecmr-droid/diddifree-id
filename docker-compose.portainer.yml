@@ -25,6 +25,12 @@ services:
       OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
       OTP_HASH_PEPPER: ${OTP_HASH_PEPPER}
       OTP_LOG_PLAINTEXT: ${OTP_LOG_PLAINTEXT:-true}
+      # Review credentials remain Portainer-only. Each value maps a Review
+      # user UUID to a six-digit code; no code belongs in this compose file.
+      REVIEW_STATIC_OTP_ENABLED: ${REVIEW_STATIC_OTP_ENABLED:-false}
+      REVIEW_STATIC_OTP_CODES_JSON: ${REVIEW_STATIC_OTP_CODES_JSON:-}
+      REVIEW_STATIC_OTP_MAX_ATTEMPTS: ${REVIEW_STATIC_OTP_MAX_ATTEMPTS:-5}
+      REVIEW_STATIC_OTP_LOCK_SECONDS: ${REVIEW_STATIC_OTP_LOCK_SECONDS:-900}
       OTP_PROVIDER: ${OTP_PROVIDER:-logging}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-}
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
