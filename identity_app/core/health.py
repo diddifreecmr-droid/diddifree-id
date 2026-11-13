@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from identity_app.core.database import engine
-from identity_app.core.metrics import observe_dependency_health
+from identity_app.core.metrics import observe_dependency_health, observe_dependency_request
 from identity_app.core.settings import settings
 from identity_app.core.worker_health import worker_health_report
 
@@ -79,12 +80,26 @@ def _check_otp_provider() -> dict[str, str]:
 
 
 async def _run_check(name: str, check) -> tuple[str, dict[str, str]]:
+    started_at = time.perf_counter()
     try:
         result = await asyncio.wait_for(check(), timeout=settings.health_check_timeout_seconds)
-        observe_dependency_health(dependency=name, healthy=result.get("status") == "ok")
+        healthy = result.get("status") == "ok"
+        observe_dependency_health(dependency=name, healthy=healthy)
+        observe_dependency_request(
+            dependency=name,
+            operation="readiness",
+            outcome="success" if healthy else "error",
+            duration_seconds=time.perf_counter() - started_at,
+        )
         return name, result
     except Exception:
         observe_dependency_health(dependency=name, healthy=False)
+        observe_dependency_request(
+            dependency=name,
+            operation="readiness",
+            outcome="error",
+            duration_seconds=time.perf_counter() - started_at,
+        )
         return name, {"status": "error"}
 
 

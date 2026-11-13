@@ -7,8 +7,9 @@ collector must only drop telemetry, never affect identity operations.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI
 from opentelemetry import context, propagate, trace
@@ -17,14 +18,35 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
+from identity_app.core.metrics import observe_telemetry_dropped
 from identity_app.core.observability import service_identity
 from identity_app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 _configured = False
+
+
+class _CountingSpanExporter(SpanExporter):
+    """Count failed OTLP exports without surfacing them to business code."""
+
+    def __init__(self, delegate: SpanExporter) -> None:
+        self._delegate = delegate
+
+    def export(self, spans: Sequence) -> SpanExportResult:  # noqa: ANN001
+        try:
+            result = self._delegate.export(spans)
+        except Exception:
+            observe_telemetry_dropped(signal="traces", reason="export_exception", count=len(spans))
+            return SpanExportResult.FAILURE
+        if result is not SpanExportResult.SUCCESS:
+            observe_telemetry_dropped(signal="traces", reason="export_failed", count=len(spans))
+        return result
+
+    def shutdown(self) -> None:
+        self._delegate.shutdown()
 
 
 def _headers() -> dict[str, str]:
@@ -62,23 +84,26 @@ def configure_tracing(app: FastAPI) -> bool:
         identity = service_identity()
         resource = Resource.create(
             {
-                "service.name": identity.service_name,
-                "service.version": identity.service_version,
-                "deployment.environment.name": identity.environment,
-                "service.instance.id": identity.instance_id,
-                "diddifree.component": identity.component,
+                **identity.as_resource_attributes(),
             },
         )
         provider = TracerProvider(
             resource=resource,
             sampler=ParentBased(TraceIdRatioBased(settings.otel_trace_sample_ratio)),
         )
-        exporter = OTLPSpanExporter(
+        exporter = _CountingSpanExporter(OTLPSpanExporter(
             endpoint=settings.otel_exporter_otlp_traces_endpoint,
             headers=_headers(),
             timeout=settings.otel_export_timeout_seconds,
+        ))
+        provider.add_span_processor(
+            BatchSpanProcessor(
+                exporter,
+                max_queue_size=2_048,
+                schedule_delay_millis=5_000,
+                export_timeout_millis=int(settings.otel_export_timeout_seconds * 1_000),
+            ),
         )
-        provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         FastAPIInstrumentor.instrument_app(app)
         HTTPXClientInstrumentor().instrument()
@@ -149,3 +174,15 @@ def current_trace_fields() -> dict[str, str]:
         "trace_id": f"{span_context.trace_id:032x}",
         "span_id": f"{span_context.span_id:016x}",
     }
+
+
+@contextmanager
+def scheduled_job_trace(job_type: str) -> Iterator[str]:
+    """Give every scheduled execution its own trace and opaque execution id."""
+
+    execution_id = uuid4().hex
+    with trace.get_tracer(__name__).start_as_current_span(f"job.{job_type}") as span:
+        if span.is_recording():
+            span.set_attribute("diddi.job.type", job_type)
+            span.set_attribute("diddi.job.execution_id", execution_id)
+        yield execution_id

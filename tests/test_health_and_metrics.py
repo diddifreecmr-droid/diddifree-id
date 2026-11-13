@@ -18,10 +18,11 @@ async def test_metrics_endpoint_exposes_http_metrics(client):
     response = await client.get("/metrics", headers={"Authorization": f"Bearer {settings.metrics_auth_token}"})
 
     assert response.status_code == 200
-    assert "diddifree_http_requests_total" in response.text
-    assert "diddifree_http_request_duration_seconds" in response.text
+    assert "diddi_http_server_requests_total" in response.text
+    assert "diddi_http_server_request_duration_seconds" in response.text
+    assert "diddi_dependency_requests_total" in response.text
     assert "diddifree_dependency_health" in response.text
-    assert "diddifree_service_info" in response.text
+    assert "diddi_service_info" in response.text
 
 
 async def test_metrics_endpoint_exposes_otp_and_event_metrics(client):
@@ -66,7 +67,7 @@ async def test_readiness_reports_missing_database_or_redis(client, monkeypatch):
     response = await client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["status"] == "not_ready"
+    assert response.json()["status"] == "unavailable"
     assert response.json()["checks"]["database"]["status"] == "error"
 
 

@@ -17,6 +17,7 @@ from fastapi import FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers
 
 from identity_app.core.errors import ApiError, api_error_handler, api_error_response
 from identity_app.core.health import readiness_report, workers_report
@@ -43,6 +44,77 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+class RequestObservabilityMiddleware:
+    """Measure a request until its last response body chunk is sent."""
+
+    def __init__(self, app) -> None:  # noqa: ANN001
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        request_id = new_request_id(headers.get("X-Request-ID"), headers.get("X-Correlation-ID"))
+        scope.setdefault("state", {})["request_id"] = request_id
+        context_token = set_request_id(request_id)
+        started_at = time.perf_counter()
+        status_code: int | None = None
+        completed = False
+
+        def complete(*, failed: bool = False) -> None:
+            nonlocal completed
+            if completed:
+                return
+            completed = True
+            duration_seconds = time.perf_counter() - started_at
+            status = 500 if failed else (status_code or 500)
+            route = route_template(scope)
+            observe_http_request(
+                method=scope["method"],
+                route=route,
+                status_code=status,
+                duration_seconds=duration_seconds,
+            )
+            event = "http.request.failed" if failed else "http.request.completed"
+            log_method = logger.error if status >= 500 else (logger.warning if status >= 400 else logger.info)
+            extra = {
+                "event": event,
+                "method": scope["method"],
+                "route": route,
+                "status_code": status,
+                "duration_ms": round(duration_seconds * 1000, 2),
+            }
+            if failed:
+                logger.exception("Requête HTTP échouée", extra=extra)
+            else:
+                log_method("Requête HTTP terminée", extra=extra)
+
+        async def send_with_observability(message) -> None:  # noqa: ANN001
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                response_headers = list(message.get("headers", []))
+                response_headers.append((b"x-request-id", request_id.encode("ascii")))
+                message = {**message, "headers": response_headers}
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                complete()
+
+        try:
+            await self.app(scope, receive, send_with_observability)
+            # A protocol error could finish without a body. Count it rather
+            # than silently dropping the request from observability.
+            complete(failed=status_code is None)
+        except Exception:
+            complete(failed=True)
+            raise
+        finally:
+            reset_request_id(context_token)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origin_list,
@@ -51,64 +123,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Client-ID", "X-Service-Key", "X-Request-ID"],
 )
-
-
-@app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    """Correlate every HTTP request without logging request bodies or secrets."""
-
-    request_id = new_request_id(request.headers.get("X-Request-ID"))
-    request.state.request_id = request_id
-    token = set_request_id(request_id)
-    started_at = time.perf_counter()
-
-    try:
-        response = await call_next(request)
-    except Exception:
-        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        observe_http_request(
-            method=request.method,
-            route=route_template(request.scope),
-            status_code=500,
-            duration_seconds=time.perf_counter() - started_at,
-        )
-        logger.exception(
-            "http_request_failed",
-            extra={
-                "event": "http.request.failed",
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": 500,
-                "duration_ms": duration_ms,
-            },
-        )
-        raise
-    else:
-        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        status_code = response.status_code
-        observe_http_request(
-            method=request.method,
-            route=route_template(request.scope),
-            status_code=status_code,
-            duration_seconds=time.perf_counter() - started_at,
-        )
-        log_method = logger.info if status_code < 400 else logger.warning
-        if status_code >= 500:
-            log_method = logger.error
-        log_method(
-            "http_request_completed",
-            extra={
-                "event": "http.request.completed",
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": status_code,
-                "duration_ms": duration_ms,
-            },
-        )
-        response.headers["X-Request-ID"] = request_id
-        return response
-    finally:
-        reset_request_id(token)
+app.add_middleware(RequestObservabilityMiddleware)
 
 app.add_exception_handler(ApiError, api_error_handler)
 
@@ -160,7 +175,7 @@ async def readiness() -> JSONResponse:
     return JSONResponse(
         status_code=200 if ready else 503,
         content={
-            "status": "ready" if ready else "not_ready",
+            "status": "ready" if ready else "unavailable",
             "app": settings.app_name,
             "checks": checks,
         },

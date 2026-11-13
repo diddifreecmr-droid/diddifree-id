@@ -1,4 +1,4 @@
-"""Prometheus metrics kept deliberately small for the first observability step."""
+"""Bounded Prometheus signals defined by DIDDI Observability v1."""
 
 from __future__ import annotations
 
@@ -6,21 +6,52 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, In
 
 from identity_app.core.observability import service_identity
 
-SERVICE_INFO = Info(
-    "diddifree_service",
-    "Stable DiddiFreeID service identity.",
-)
+HTTP_DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10)
+JOB_DURATION_BUCKETS = (0.1, 1, 5, 15, 60, 300, 900, 3600)
+_KNOWN_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"})
 
+SERVICE_INFO = Info("diddi_service", "DIDDI service resource identity.")
 HTTP_REQUESTS = Counter(
-    "diddifree_http_requests",
-    "Total HTTP requests handled by DiddiFreeID.",
+    "diddi_http_server_requests",
+    "Total completed HTTP server requests.",
     ("method", "route", "status_code"),
 )
 HTTP_REQUEST_DURATION = Histogram(
-    "diddifree_http_request_duration_seconds",
-    "HTTP request duration in seconds.",
+    "diddi_http_server_request_duration_seconds",
+    "Completed HTTP server request duration in seconds.",
     ("method", "route"),
+    buckets=HTTP_DURATION_BUCKETS,
 )
+DEPENDENCY_REQUESTS = Counter(
+    "diddi_dependency_requests",
+    "Dependency probes and calls completed by outcome.",
+    ("dependency", "operation", "outcome"),
+)
+DEPENDENCY_REQUEST_DURATION = Histogram(
+    "diddi_dependency_request_duration_seconds",
+    "Dependency probe and call duration in seconds.",
+    ("dependency", "operation"),
+    buckets=HTTP_DURATION_BUCKETS,
+)
+JOBS = Counter("diddi_jobs", "Scheduled job executions.", ("job_type", "outcome"))
+JOB_DURATION = Histogram(
+    "diddi_job_duration_seconds",
+    "Scheduled job duration in seconds.",
+    ("job_type",),
+    buckets=JOB_DURATION_BUCKETS,
+)
+WORKER_HEARTBEAT = Gauge(
+    "diddi_worker_heartbeat_timestamp_seconds",
+    "Unix timestamp of the latest completed worker loop.",
+    ("worker_type",),
+)
+TELEMETRY_DROPPED = Counter(
+    "diddi_telemetry_dropped",
+    "Telemetry signals dropped or rejected before delivery.",
+    ("signal", "reason"),
+)
+
+# Service-specific additions remain separate from the shared DIDDI vocabulary.
 CAPABILITY_EVENTS = Counter(
     "diddifree_capability_events",
     "Capability projection operations handled by DiddiFreeID.",
@@ -51,35 +82,55 @@ DEPENDENCY_HEALTH = Gauge(
     "Current readiness state of a DiddiFreeID dependency (1 healthy, 0 unhealthy).",
     ("dependency",),
 )
-WORKER_HEALTH = Gauge(
-    "diddifree_worker_health",
-    "Current worker heartbeat state (1 healthy, 0 unhealthy).",
-    ("worker",),
-)
-WORKER_LAST_SUCCESS = Gauge(
-    "diddifree_worker_last_success_timestamp_seconds",
-    "Unix timestamp of the latest successful worker execution.",
-    ("worker",),
-)
 
 
 def configure_metrics(*, component: str | None = None) -> None:
-    """Publish one bounded identity record, never per user or request."""
+    """Publish one bounded service-info series, never per user or request."""
 
-    SERVICE_INFO.info(service_identity(component=component).as_dict())
+    SERVICE_INFO.info(service_identity(component=component).as_metric_labels())
 
 
 def route_template(scope: dict) -> str:
-    """Use route templates to avoid high-cardinality user-id labels."""
+    """Use router templates and one fallback to keep label cardinality bounded."""
 
     route = scope.get("route")
     template = getattr(route, "path", None)
-    return template or "unmatched"
+    return template or "/_unmatched"
+
+
+def metric_method(method: str) -> str:
+    normalized = method.upper()
+    return normalized if normalized in _KNOWN_METHODS else "OTHER"
 
 
 def observe_http_request(*, method: str, route: str, status_code: int, duration_seconds: float) -> None:
-    HTTP_REQUESTS.labels(method, route, str(status_code)).inc()
-    HTTP_REQUEST_DURATION.labels(method, route).observe(duration_seconds)
+    normalized_method = metric_method(method)
+    HTTP_REQUESTS.labels(normalized_method, route, str(status_code)).inc()
+    HTTP_REQUEST_DURATION.labels(normalized_method, route).observe(duration_seconds)
+
+
+def observe_dependency_request(
+    *,
+    dependency: str,
+    operation: str,
+    outcome: str,
+    duration_seconds: float,
+) -> None:
+    DEPENDENCY_REQUESTS.labels(dependency, operation, outcome).inc()
+    DEPENDENCY_REQUEST_DURATION.labels(dependency, operation).observe(duration_seconds)
+
+
+def observe_job(*, job_type: str, outcome: str, duration_seconds: float) -> None:
+    JOBS.labels(job_type, outcome).inc()
+    JOB_DURATION.labels(job_type).observe(duration_seconds)
+
+
+def observe_worker_heartbeat(*, worker_type: str, timestamp_seconds: float) -> None:
+    WORKER_HEARTBEAT.labels(worker_type).set(timestamp_seconds)
+
+
+def observe_telemetry_dropped(*, signal: str, reason: str, count: int = 1) -> None:
+    TELEMETRY_DROPPED.labels(signal, reason).inc(count)
 
 
 def metrics_payload() -> tuple[bytes, str]:
@@ -108,9 +159,3 @@ def observe_event_publish(*, event: str, result: str) -> None:
 
 def observe_dependency_health(*, dependency: str, healthy: bool) -> None:
     DEPENDENCY_HEALTH.labels(dependency).set(1 if healthy else 0)
-
-
-def observe_worker_health(*, worker: str, healthy: bool, last_success_timestamp: float | None) -> None:
-    WORKER_HEALTH.labels(worker).set(1 if healthy else 0)
-    if last_success_timestamp is not None:
-        WORKER_LAST_SUCCESS.labels(worker).set(last_success_timestamp)

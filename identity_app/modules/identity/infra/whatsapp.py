@@ -43,10 +43,7 @@ class EvolutionWhatsAppOtpSender:
         if phone is None:
             raise RuntimeError("OTP WhatsApp nécessite un numéro de téléphone")
 
-        if settings.otp_log_plaintext:
-            logger.warning("OTP WhatsApp - le code pour phone=%s est %s.", phone, code)
-        else:
-            logger.info("OTP WhatsApp emis pour phone=%s (code non journalise)", phone)
+        logger.info("OTP WhatsApp remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
 
         if not settings.evolution_api_url or not settings.evolution_api_key or not settings.evolution_instance:
             raise RuntimeError(
@@ -80,16 +77,16 @@ class EvolutionWhatsAppOtpSender:
                         headers=headers,
                     )
                 if _is_whatsapp_number_not_found(response):
-                    logger.info("Evolution API WhatsApp number not found phone=%s body=%s", phone, response.text[:500])
+                    logger.info(
+                        "Le fournisseur WhatsApp ne connaît pas le destinataire",
+                        extra={"event": "otp.delivery.recipient_unknown"},
+                    )
                     raise WhatsAppNumberNotFound("Le numéro n'existe pas sur WhatsApp.")
                 response.raise_for_status()
         except WhatsAppNumberNotFound:
             raise
         except httpx.HTTPError as exc:
-            provider_response = getattr(exc, "response", None)
-            status = provider_response.status_code if provider_response is not None else "network"
-            body = provider_response.text[:500] if provider_response is not None else str(exc)
-            logger.error("Evolution API WhatsApp failed status=%s body=%s", status, body)
+            logger.error("Evolution API a refusé l'envoi WhatsApp", extra={"event": "otp.delivery.failed"})
             raise RuntimeError("Evolution API a refusé l'envoi WhatsApp") from exc
         return OtpDeliveryResult(channel=request.channel, provider="evolution")
 

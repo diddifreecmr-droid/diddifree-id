@@ -77,9 +77,9 @@ requête peut choisir explicitement `"channel": "sms"`, `"channel": "email"`,
 Yellika ou Senndo selon `OTP_SMS_PROVIDER` lorsque `OTP_PROVIDER=sms` est
 configuré dans Portainer. WhatsApp utilise Evolution API avec `EVOLUTION_API_URL`,
 `EVOLUTION_API_KEY` et `EVOLUTION_INSTANCE` dans Portainer. Telegram, SMS et
-WhatsApp nécessitent un numéro de téléphone. Dans tous les cas,
-`OTP_LOG_PLAINTEXT=true` garde le code visible dans les logs ; `false` le
-masque.
+WhatsApp nécessitent un numéro de téléphone. Les codes OTP ne sont jamais
+journalisés, quel que soit le canal ou la valeur historique de
+`OTP_LOG_PLAINTEXT`.
 
 Les comptes Google Play Review restent sur le même écran OTP, sans mot de
 passe ni transport de message. Après avoir marqué le compte avec
@@ -377,9 +377,8 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
 - **La rétention du stream est bornée** et un écrit peut réussir alors que la
   publication échoue. `GET /users/backfill` est le filet pour les deux cas.
 - **Fournisseurs SMS** — les adapters Yellika et Senndo sont disponibles mais
-  désactivés par défaut. Le code OTP est journalisé avec `OTP_LOG_PLAINTEXT`, à
-  couper en production. Le même routage provider-neutral couvre aussi email,
-  Telegram et WhatsApp.
+  désactivés par défaut. Le même routage provider-neutral couvre aussi email,
+  Telegram et WhatsApp; les codes OTP ne sont jamais journalisés.
 - **Authentification par mot de passe non exposée** — Argon2id est en place
   (`core/security.py`) et la colonne existe, mais aucune route ne l'utilise :
   le contrat §5 la range explicitement dans le « pas encore ».

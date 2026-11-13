@@ -1,8 +1,7 @@
 """SMTP delivery for OTP codes.
 
 The SMTP credentials are configuration-only. The sender mailbox is never
-hard-coded in application code and the OTP remains logged according to
-``OTP_LOG_PLAINTEXT`` before delivery.
+hard-coded in application code and OTP values are never logged.
 """
 
 from __future__ import annotations
@@ -49,11 +48,7 @@ class SmtpOtpSender:
         phone = request.phone
         email = request.email
         code = request.code
-        identifier = phone or email
-        if settings.otp_log_plaintext:
-            logger.warning("OTP Email - le code pour identifier=%s est %s.", identifier, code)
-        else:
-            logger.info("OTP Email emis pour identifier=%s (code non journalise)", identifier)
+        logger.info("OTP email prêt à être remis", extra={"event": "otp.delivery.dispatched"})
 
         recipient = email
         if recipient is None and phone is not None:
@@ -64,7 +59,7 @@ class SmtpOtpSender:
                 recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.warning("Aucune adresse e-mail OTP configurée pour identifier=%s", identifier)
+            logger.warning("Aucune adresse e-mail OTP configurée", extra={"event": "otp.delivery.recipient_missing"})
             return
 
         if not settings.smtp_host or not settings.smtp_username or not settings.smtp_password:

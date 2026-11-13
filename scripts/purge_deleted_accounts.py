@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,10 +27,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from identity_app.core.database import async_session_factory, engine
-from identity_app.core.logging import configure_logging
-from identity_app.core.metrics import configure_metrics
+from identity_app.core.logging import configure_logging, reset_request_id, set_request_id
+from identity_app.core.metrics import configure_metrics, observe_job
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
+from identity_app.core.tracing import scheduled_job_trace
 from identity_app.core.worker_health import record_worker_heartbeat
 from identity_app.modules.identity.domain.events import UserDeleted
 from identity_app.modules.identity.infra import models as orm
@@ -131,13 +133,24 @@ async def main() -> None:
     configure_logging(settings.log_level, component="account-purger")
     configure_metrics(component="account-purger")
     redis = create_redis_pool(settings.redis_url)
+    started_at = time.perf_counter()
+    execution_id: str | None = None
+    request_token = None
     try:
-        count = await purge_due_accounts(redis=redis)
+        with scheduled_job_trace("account-purger") as execution_id:
+            request_token = set_request_id(f"job_{execution_id}")
+            count = await purge_due_accounts(redis=redis)
+        duration_seconds = time.perf_counter() - started_at
+        observe_job(job_type="account-purger", outcome="success", duration_seconds=duration_seconds)
         await record_worker_heartbeat(
             redis,
             worker="account-purger",
             status="ok",
-            details={"anonymized_accounts": count},
+            details={
+                "anonymized_accounts": count,
+                "duration_seconds": round(duration_seconds, 3),
+                "execution_id": execution_id,
+            },
         )
         logger.info(
             "account_purger terminé : %s compte(s) anonymisé(s)",
@@ -145,6 +158,11 @@ async def main() -> None:
             extra={"event": "worker.account_purger.completed"},
         )
     except Exception:
+        observe_job(
+            job_type="account-purger",
+            outcome="error",
+            duration_seconds=time.perf_counter() - started_at,
+        )
         try:
             await record_worker_heartbeat(redis, worker="account-purger", status="error")
         except Exception:
@@ -156,6 +174,8 @@ async def main() -> None:
         logger.exception("account_purger failed", extra={"event": "worker.account_purger.failed"})
         raise
     finally:
+        if request_token is not None:
+            reset_request_id(request_token)
         await redis.aclose()
         await engine.dispose()
 

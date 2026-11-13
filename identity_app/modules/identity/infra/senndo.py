@@ -42,10 +42,7 @@ class SenndoSmsOtpSender:
         if not settings.senndo_sms_api_key:
             raise RuntimeError("OTP_SMS_PROVIDER=senndo requires SENNDO_SMS_API_KEY")
 
-        if settings.otp_log_plaintext:
-            logger.warning("OTP Senndo SMS - le code pour phone=%s est %s.", request.phone, request.code)
-        else:
-            logger.info("OTP Senndo SMS emis pour phone=%s (code non journalise)", request.phone)
+        logger.info("OTP Senndo SMS remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
 
         idempotency_key = request.idempotency_key or _idempotency_key(request.phone, request.code)
         payload = {
@@ -69,10 +66,7 @@ class SenndoSmsOtpSender:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
-            provider_response = getattr(exc, "response", None)
-            status = provider_response.status_code if provider_response is not None else "network"
-            body = provider_response.text[:500] if provider_response is not None else str(exc)
-            logger.error("Senndo SMS failed status=%s body=%s", status, body)
+            logger.error("Senndo a refusé l'envoi SMS", extra={"event": "otp.delivery.failed"})
             raise RuntimeError("Senndo a refusé l'envoi SMS") from exc
 
         provider_message_id = None

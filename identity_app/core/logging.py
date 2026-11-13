@@ -1,4 +1,4 @@
-"""Logging helpers shared by the HTTP layer and application modules."""
+"""DIDDI Observability v1 JSON logging and request-correlation helpers."""
 
 from __future__ import annotations
 
@@ -10,102 +10,160 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-from identity_app.core.observability import ServiceIdentity, service_identity
+from identity_app.core.metrics import observe_telemetry_dropped
+from identity_app.core.observability import OBSERVABILITY_SCHEMA_VERSION, ServiceIdentity, service_identity
 from identity_app.core.tracing import current_trace_fields
 
-_request_id: ContextVar[str] = ContextVar("request_id", default="-")
-_request_id_pattern = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+_request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _record_factory_configured = False
 _identity: ServiceIdentity | None = None
+_MAX_LOG_LINE_BYTES = 64 * 1024
 
-# This is intentionally a last line of defence. Application code must not log
-# request bodies or headers, but third-party exceptions occasionally include a
-# URL or an Authorization header.
+# No formatter can compensate for logging request bodies. This defensive pass
+# handles accidental secrets in third-party exception messages.
 _SENSITIVE_VALUE = re.compile(
-    r"(?i)(authorization|token|secret|password|api[_-]?key|cookie)"
+    r"(?i)(authorization|token|secret|password|api[_-]?key|cookie|otp|pin)"
     r"([\s:=]+)(bearer\s+)?([^\s,;\]\}\"']+)",
 )
+_PHONE = re.compile(r"(?<!\d)\+?\d[\d .()-]{6,}\d(?!\d)")
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_OTP_CODE = re.compile(r"(?i)\b(?:otp|code)[^\d]{0,24}\d{4,8}\b")
 
 
 def _redact(value: str) -> str:
-    return _SENSITIVE_VALUE.sub(lambda match: f"{match.group(1)}{match.group(2)}***", value)
+    value = _SENSITIVE_VALUE.sub(lambda match: f"{match.group(1)}{match.group(2)}***", value)
+    value = _OTP_CODE.sub("OTP ***", value)
+    value = _EMAIL.sub("***", value)
+    return _PHONE.sub("***", value)
 
 
-def new_request_id(candidate: str | None = None) -> str:
-    """Return a safe incoming request id or generate one when needed."""
-
-    value = (candidate or "").strip()
-    if _request_id_pattern.fullmatch(value):
+def _truncate(value: str, maximum_bytes: int) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
         return value
+    return encoded[:maximum_bytes].decode("utf-8", errors="ignore") + "…"
+
+
+def new_request_id(candidate: str | None = None, fallback: str | None = None) -> str:
+    """Return a valid request/correlation id or create an opaque replacement."""
+
+    for value in (candidate, fallback):
+        normalized = (value or "").strip()
+        if _request_id_pattern.fullmatch(normalized):
+            return normalized
     return uuid.uuid4().hex
 
 
 def set_request_id(value: str) -> object:
-    """Set the request id for the current async context."""
-
     return _request_id.set(value)
 
 
 def reset_request_id(token: object) -> None:
-    """Restore the request id that existed before the current request."""
-
     _request_id.reset(token)  # type: ignore[arg-type]
 
 
-def get_request_id() -> str:
+def get_request_id() -> str | None:
     return _request_id.get()
 
 
 class JsonFormatter(logging.Formatter):
-    """Small JSON formatter suitable for Docker stdout and log collectors."""
+    """One bounded, redacted JSON object per output line."""
 
-    _extra_fields = (
-        "method",
-        "path",
-        "status_code",
-        "duration_ms",
-    )
+    _attribute_fields = {
+        "method": "http.request.method",
+        "route": "http.route",
+        "status_code": "http.response.status_code",
+        "duration_ms": "duration_ms",
+    }
 
-    def format(self, record: logging.LogRecord) -> str:
+    def _payload(self, record: logging.LogRecord) -> dict[str, Any]:
         identity = _identity or service_identity()
-        payload: dict[str, Any] = {
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "severity": record.levelname,
-            "logger": record.name,
-            "event": getattr(record, "event", record.msg if isinstance(record.msg, str) else "log"),
-            "message": _redact(record.getMessage()),
-            "request_id": getattr(record, "request_id", get_request_id()),
-            **identity.as_dict(),
-        }
-        payload.update(current_trace_fields())
-
-        for field in self._extra_fields:
+        level = {"WARNING": "warn", "CRITICAL": "fatal"}.get(record.levelname, record.levelname.lower())
+        attributes: dict[str, Any] = {}
+        for field, target in self._attribute_fields.items():
             value = getattr(record, field, None)
             if value is not None:
-                payload[field] = value
-
+                attributes[target] = value
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            exception_type, exception, _traceback = record.exc_info
+            attributes["error.type"] = exception_type.__name__ if exception_type else "Exception"
+            attributes["error.message"] = _redact(str(exception))
+            attributes["error.stack"] = _redact(self.formatException(record.exc_info))
 
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        payload: dict[str, Any] = {
+            "schema_version": OBSERVABILITY_SCHEMA_VERSION,
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "level": level,
+            "event": getattr(record, "event", "log.unclassified"),
+            "message": _redact(record.getMessage()),
+            "resource": identity.as_resource_attributes(),
+            "attributes": attributes,
+        }
+        request_id = getattr(record, "request_id", get_request_id())
+        if request_id:
+            payload["request_id"] = request_id
+        payload.update(current_trace_fields())
+        return payload
+
+    def format(self, record: logging.LogRecord) -> str:
+        try:
+            payload = self._payload(record)
+            encoded = json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) <= _MAX_LOG_LINE_BYTES:
+                return encoded
+
+            attributes = payload["attributes"]
+            attributes["truncated"] = True
+            if "error.stack" in attributes:
+                attributes["error.stack"] = _truncate(str(attributes["error.stack"]), 8 * 1024)
+            payload["message"] = _truncate(str(payload["message"]), 4 * 1024)
+            encoded = json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) > _MAX_LOG_LINE_BYTES:
+                payload["attributes"] = {"truncated": True}
+                payload["message"] = "Événement de log tronqué"
+                encoded = json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":"))
+            return encoded
+        except Exception:
+            # Logging never breaks business code. Count the loss and emit the
+            # smallest valid fallback record without recursively logging.
+            observe_telemetry_dropped(signal="logs", reason="serialization_error")
+            return json.dumps(
+                {
+                    "schema_version": OBSERVABILITY_SCHEMA_VERSION,
+                    "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    "level": "error",
+                    "event": "telemetry.log.serialization_failed",
+                    "message": "Événement de log abandonné",
+                    "resource": (_identity or service_identity()).as_resource_attributes(),
+                    "attributes": {"truncated": True},
+                },
+                separators=(",", ":"),
+            )
 
 
 def configure_logging(level: str = "INFO", *, component: str | None = None) -> None:
-    """Configure application logs without replacing Uvicorn's own loggers."""
+    """Route application, library and Uvicorn logs through the same cleaner."""
 
     global _identity, _record_factory_configured
-
     _identity = service_identity(component=component)
 
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
-
     if not root.handlers:
         root.addHandler(logging.StreamHandler())
-
     formatter = JsonFormatter()
     for handler in root.handlers:
         handler.setFormatter(formatter)
+
+    # Uvicorn access logs carry raw client IPs and duplicate the normalized
+    # request-completion event produced by the ASGI middleware below.
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.disabled = True
+    for logger_name in ("uvicorn", "uvicorn.error", "alembic"):
+        managed_logger = logging.getLogger(logger_name)
+        managed_logger.handlers.clear()
+        managed_logger.propagate = True
 
     if not _record_factory_configured:
         previous_factory = logging.getLogRecordFactory()

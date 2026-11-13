@@ -34,7 +34,7 @@ async def test_completed_request_log_is_correlated(client, caplog):
     records = [
         record
         for record in caplog.records
-        if record.name == "identity_app.main" and record.msg == "http_request_completed"
+        if record.name == "identity_app.main" and record.msg == "Requête HTTP terminée"
     ]
     assert response.status_code == 200
     assert records
@@ -57,7 +57,8 @@ def test_json_logs_include_resource_identity_and_redact_secrets():
         logging.INFO,
         __file__,
         1,
-        "outbound Authorization: Bearer private-token password=not-for-logs",
+        "outbound Authorization: Bearer private-token password=not-for-logs OTP code 482913 "+
+        "email=someone@example.com phone=+2250700000000",
         (),
         None,
     )
@@ -65,10 +66,27 @@ def test_json_logs_include_resource_identity_and_redact_secrets():
     payload = json.loads(JsonFormatter().format(record))
 
     assert payload["timestamp"].endswith("Z")
-    assert payload["service"] == "diddifree-id"
-    assert payload["component"] == "api"
+    assert payload["schema_version"] == "1.0.0"
+    assert payload["level"] == "info"
+    assert payload["resource"]["service.name"] == "diddifree-id"
+    assert payload["resource"]["diddi.component"] == "api"
+    assert len(payload["resource"]) == 8
     assert "private-token" not in payload["message"]
     assert "not-for-logs" not in payload["message"]
+    assert "482913" not in payload["message"]
+    assert "someone@example.com" not in payload["message"]
+    assert "+2250700000000" not in payload["message"]
+
+
+async def test_correlation_id_alias_is_accepted_but_request_id_wins(client):
+    aliased = await client.get("/health", headers={"X-Correlation-ID": "legacy-correlation"})
+    preferred = await client.get(
+        "/health",
+        headers={"X-Correlation-ID": "legacy-correlation", "X-Request-ID": "new-request"},
+    )
+
+    assert aliased.headers["X-Request-ID"] == "legacy-correlation"
+    assert preferred.headers["X-Request-ID"] == "new-request"
 
 
 async def test_domain_events_carry_w3c_trace_metadata_without_changing_payload(monkeypatch):

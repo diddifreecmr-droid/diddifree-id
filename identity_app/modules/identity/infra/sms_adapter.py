@@ -14,11 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class LoggingOtpSender:
-    """Development sender — writes the code to the log.
+    """Development sender with a safe delivery audit event.
 
-    Guarded by `OTP_LOG_PLAINTEXT`. With the flag off, the code is not logged at
-    all: an OTP in a production log file is a credential in a production log
-    file, readable by anyone with access to log aggregation.
+    Test code captures the request at the sender boundary; credentials never
+    enter application logs, including when this local-only sender is selected.
     """
 
     async def send(
@@ -39,17 +38,5 @@ class LoggingOtpSender:
         )
 
     async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
-        phone = request.phone
-        email = request.email
-        code = request.code
-        identifier = phone or email
-        if settings.otp_log_plaintext:
-            logger.warning(
-                "OTP stub — en développement, le code pour identifier=%s est %s. "
-                "Aucun fournisseur de transport n'est configuré.",
-                identifier,
-                code,
-            )
-        else:
-            logger.info("OTP émis pour identifier=%s (code non journalisé)", identifier)
+        logger.info("OTP remis au canal de développement", extra={"event": "otp.delivery.dispatched"})
         return OtpDeliveryResult(channel=request.channel, provider="logging")

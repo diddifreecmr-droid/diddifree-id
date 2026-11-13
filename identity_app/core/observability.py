@@ -4,29 +4,52 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from uuid import uuid4
 
 from identity_app.core.settings import settings
 
 CANONICAL_SERVICE_NAME = "diddifree-id"
+OBSERVABILITY_SCHEMA_VERSION = "1.0.0"
+_PROCESS_INSTANCE_ID = f"{os.getenv('HOSTNAME', 'process')}-{uuid4().hex}"
 
 
 @dataclass(frozen=True)
 class ServiceIdentity:
     """Non-secret resource attributes attached to every emitted signal."""
 
+    service_namespace: str
     service_name: str
     service_version: str
-    environment: str
     instance_id: str
+    environment: str
+    deployment_id: str
     component: str
+    observability_version: str
 
-    def as_dict(self) -> dict[str, str]:
+    def as_resource_attributes(self) -> dict[str, str]:
         return {
-            "service": self.service_name,
+            "service.namespace": self.service_namespace,
+            "service.name": self.service_name,
+            "service.version": self.service_version,
+            "service.instance.id": self.instance_id,
+            "deployment.environment.name": self.environment,
+            "diddi.deployment.id": self.deployment_id,
+            "diddi.component": self.component,
+            "diddi.observability.version": self.observability_version,
+        }
+
+    def as_metric_labels(self) -> dict[str, str]:
+        """Prometheus labels cannot contain dots used by resource attributes."""
+
+        return {
+            "service_namespace": self.service_namespace,
+            "service_name": self.service_name,
             "service_version": self.service_version,
-            "environment": self.environment,
-            "instance_id": self.instance_id,
+            "deployment_environment_name": self.environment,
+            "deployment_id": self.deployment_id,
             "component": self.component,
+            "instance": self.instance_id,
+            "observability_version": self.observability_version,
         }
 
 
@@ -34,9 +57,18 @@ def service_identity(*, component: str | None = None) -> ServiceIdentity:
     """Return the canonical identity without exposing configuration secrets."""
 
     return ServiceIdentity(
+        service_namespace="diddi",
         service_name=CANONICAL_SERVICE_NAME,
         service_version=settings.service_version,
+        # An operator value is a deployment hint, never a reusable instance
+        # identifier. The process suffix guarantees renewal after restart.
+        instance_id=(
+            f"{settings.service_instance_id}-{_PROCESS_INSTANCE_ID}"
+            if settings.service_instance_id
+            else _PROCESS_INSTANCE_ID
+        ),
         environment=settings.environment,
-        instance_id=settings.service_instance_id or os.getenv("HOSTNAME", "unknown"),
+        deployment_id=settings.diddi_deployment_id or f"{CANONICAL_SERVICE_NAME}-{settings.environment}",
         component=component or settings.observability_component,
+        observability_version=OBSERVABILITY_SCHEMA_VERSION,
     )

@@ -9,16 +9,14 @@ Strategy, mirroring DiddiGo's so the two suites feel like one:
   * the schema is built once per session by running Alembic against that
     database, so the migration itself is under test on every run;
   * `client` binds httpx to the ASGI app in-process, with no network;
-  * `otp_code` captures the plaintext code the SMS stub logs, which is how a
-    test completes a verification without an SMS provider.
+  * `otp_code` captures the request at the local OTP sender boundary. Tests
+    never need to recover credentials from logs.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import os
-import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 
@@ -38,7 +36,7 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:16391/1")
 # 429. `test_rate_limiting.py` turns it back on explicitly for its own case.
 os.environ.setdefault("OTP_RATE_LIMIT_SECONDS", "0")
 os.environ.setdefault("OTP_HASH_PEPPER", "test-pepper-at-least-32-characters-long")
-os.environ.setdefault("OTP_LOG_PLAINTEXT", "true")
+os.environ.setdefault("OTP_LOG_PLAINTEXT", "false")
 os.environ.setdefault("JWT_PRIVATE_KEY_PATH", "keys/private.pem")
 os.environ.setdefault("JWT_PUBLIC_KEY_PATH", "keys/public.pem")
 os.environ.setdefault("JWT_ACTIVE_KID", "dev-2026-07-01")
@@ -165,27 +163,11 @@ async def client(database) -> AsyncIterator[httpx.AsyncClient]:
             await engine.dispose()
 
 
-OTP_LOGGER = "identity_app.modules.identity.infra.sms_adapter"
-
-
-class OtpCapture(logging.Handler):
-    """Records the plaintext code the SMS stub logs.
-
-    Its own handler rather than pytest's `caplog` because `caplog` only sees
-    records emitted inside the test body, and the fixtures below request codes
-    during setup.
-    """
-
-    _PATTERN = re.compile(r"est (\d{6})\.")
+class OtpCapture:
+    """Records test OTPs in memory at the delivery adapter boundary."""
 
     def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
         self.codes: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        match = self._PATTERN.search(record.getMessage())
-        if match:
-            self.codes.append(match.group(1))
 
     def latest(self) -> str:
         if not self.codes:
@@ -194,17 +176,18 @@ class OtpCapture(logging.Handler):
 
 
 @pytest.fixture
-def otp_code() -> Iterator[OtpCapture]:
-    handler = OtpCapture()
-    logger = logging.getLogger(OTP_LOGGER)
-    previous_level = logger.level
-    logger.setLevel(logging.WARNING)
-    logger.addHandler(handler)
-    try:
-        yield handler
-    finally:
-        logger.removeHandler(handler)
-        logger.setLevel(previous_level)
+def otp_code(monkeypatch: pytest.MonkeyPatch) -> Iterator[OtpCapture]:
+    from identity_app.modules.identity.domain.otp_delivery import OtpDeliveryResult
+    from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
+
+    capture = OtpCapture()
+
+    async def capture_delivery(_sender, request):  # noqa: ANN001
+        capture.codes.append(request.code)
+        return OtpDeliveryResult(channel=request.channel, provider="test")
+
+    monkeypatch.setattr(LoggingOtpSender, "deliver", capture_delivery)
+    yield capture
 
 
 @pytest.fixture

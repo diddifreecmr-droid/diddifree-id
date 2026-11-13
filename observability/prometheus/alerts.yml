@@ -14,9 +14,9 @@ groups:
       - alert: DiddiFreeIDHighErrorRate
         expr: |
           (
-            sum(rate(diddifree_http_requests_total{job="diddifree-id",status_code=~"5.."}[5m]))
+            sum(rate(diddi_http_server_requests_total{job="diddifree-id",status_code=~"5.."}[5m]))
             /
-            clamp_min(sum(rate(diddifree_http_requests_total{job="diddifree-id"}[5m])), 1)
+            clamp_min(sum(rate(diddi_http_server_requests_total{job="diddifree-id"}[5m])), 1)
           ) > 0.05
         for: 10m
         labels:
@@ -30,7 +30,7 @@ groups:
         expr: |
           histogram_quantile(
             0.95,
-            sum(rate(diddifree_http_request_duration_seconds_bucket{job="diddifree-id"}[5m])) by (le)
+            sum(rate(diddi_http_server_request_duration_seconds_bucket{job="diddifree-id"}[5m])) by (le)
           ) > 1
         for: 10m
         labels:

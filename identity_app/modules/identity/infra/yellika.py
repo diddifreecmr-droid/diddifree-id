@@ -43,10 +43,7 @@ class YellikaSmsOtpSender:
                 "OTP_SMS_PROVIDER=yellika requires YELLIKA_SMS_TOKEN and YELLIKA_SMS_SENDER_ID",
             )
 
-        if settings.otp_log_plaintext:
-            logger.warning("OTP Yellika SMS - le code pour phone=%s est %s.", request.phone, request.code)
-        else:
-            logger.info("OTP Yellika SMS emis pour phone=%s (code non journalise)", request.phone)
+        logger.info("OTP Yellika SMS remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
 
         url = f"{settings.yellika_sms_base_url.rstrip('/')}/api/v3/sms/send"
         payload = {
@@ -69,10 +66,7 @@ class YellikaSmsOtpSender:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
-            provider_response = getattr(exc, "response", None)
-            status = provider_response.status_code if provider_response is not None else "network"
-            body = provider_response.text[:500] if provider_response is not None else str(exc)
-            logger.error("Yellika SMS failed status=%s body=%s", status, body)
+            logger.error("Yellika a refusé l'envoi SMS", extra={"event": "otp.delivery.failed"})
             raise RuntimeError("Yellika a refusé l'envoi SMS") from exc
 
         provider_message_id = None

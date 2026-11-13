@@ -180,17 +180,7 @@ class TelegramOtpSender:
         code = request.code
         if phone is None:
             raise RuntimeError("OTP Telegram nécessite un numéro de téléphone")
-        # Keep staging supportable without an SMS provider. This is deliberately
-        # independent from Telegram delivery: the code must remain visible in
-        # logs while OTP_LOG_PLAINTEXT=true, even when no chat is linked yet.
-        if settings.otp_log_plaintext:
-            logger.warning(
-                "OTP Telegram - le code pour phone=%s est %s.",
-                phone,
-                code,
-            )
-        else:
-            logger.info("OTP Telegram emis pour phone=%s (code non journalise)", phone)
+        logger.info("OTP Telegram prêt à être remis", extra={"event": "otp.delivery.dispatched"})
 
         async with async_session_factory() as session:
             result = await session.execute(

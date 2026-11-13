@@ -56,8 +56,8 @@ Expected readiness dependencies:
 
 Prometheus metrics exposed by `/metrics` include:
 
-- `diddifree_http_requests_total{method,route,status_code}`;
-- `diddifree_http_request_duration_seconds{method,route}`;
+- `diddi_http_server_requests_total{method,route,status_code}`;
+- `diddi_http_server_request_duration_seconds{method,route}`;
 - `diddifree_service_token_issuance_total{service,result}`;
 - `diddifree_capability_events_total{operation,result,service}`;
 - `diddifree_capability_stale_reads_total{service}`.
@@ -198,4 +198,3 @@ For each staging validation, record:
 - request id when available;
 - summary of successful response;
 - confirmation that no production client or secret was touched.
-

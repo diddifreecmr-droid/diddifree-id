@@ -37,6 +37,7 @@ import logging
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from identity_app.core.logging import get_request_id
 from identity_app.core.metrics import observe_event_publish
 from identity_app.core.tracing import inject_trace_context
 from identity_app.modules.identity.domain.events import DomainEvent
@@ -62,8 +63,11 @@ class RedisEventPublisher:
     async def publish(self, event: DomainEvent) -> None:
         payload = event.to_payload()
         trace_headers = inject_trace_context()
+        request_id = get_request_id()
+        if request_id:
+            trace_headers["request_id"] = request_id
         try:
-            entry_id = await self._redis.xadd(
+            await self._redis.xadd(
                 self._stream,
                 {
                     "event": event.name,
@@ -76,13 +80,7 @@ class RedisEventPublisher:
                 maxlen=STREAM_MAX_LEN,
                 approximate=True,
             )
-            logger.info(
-                "événement publié : %s user_id=%s (entry=%s)",
-                event.name,
-                event.user_id,
-                entry_id,
-                extra={"event": "domain_event.published"},
-            )
+            logger.info("Événement de domaine publié", extra={"event": "domain_event.published"})
             observe_event_publish(event=event.name, result="success")
         except Exception:
             # Never let a bus failure roll back a completed write. The user IS

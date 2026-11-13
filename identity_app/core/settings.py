@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # DiddiObserve use this canonical resource name to join signals.
     service_version: str = "0.1.0"
     service_instance_id: str = ""
+    diddi_deployment_id: str = ""
     observability_component: str = "api"
     # Metrics are an operational endpoint, never a public API. An absent
     # token disables only scraping (503); it never prevents business traffic.
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str = ""
     otel_exporter_otlp_headers: str = ""
-    otel_export_timeout_seconds: float = 3.0
+    otel_export_timeout_seconds: float = 5.0
     otel_trace_sample_ratio: float = 0.1
     worker_heartbeat_stale_seconds: int = 7_200
     worker_heartbeat_ttl_seconds: int = 14_400
@@ -82,7 +83,8 @@ class Settings(BaseSettings):
     otp_rate_limit_seconds: int = 60
     otp_max_attempts: int = 5
     otp_hash_pepper: str = "change-me-in-prod-32-characters-minimum"
-    otp_log_plaintext: bool = True
+    # Kept only to fail safely for old deployments. OTP values are never logs.
+    otp_log_plaintext: bool = False
     # Google Play reviewers keep the normal six-digit-code UI, but their code
     # is provisioned out-of-band rather than delivered by an OTP provider.
     # The map is deliberately a JSON string so it can be set as one Portainer
