@@ -42,7 +42,7 @@ spec:
       schema_version: 1.0.0
       correlation_headers: [X-Request-ID, X-Correlation-ID]
       max_event_bytes: 65536
-      secret_policy: redact-and-never-log-credentials-or-personal-identifiers
+      secret_policy: redact-by-default; OTP_LOG_PLAINTEXT=true is a staging exception for otp.code and otp.recipient
     metrics:
       format: prometheus
       path: /metrics
@@ -98,6 +98,8 @@ spec:
       p95_latency_seconds: '<= 1 over 10m'
     runbook: docs/OBSERVABILITY_RUNBOOK.md
   known_exceptions:
+    - criterion: C03
+      reason: OTP_LOG_PLAINTEXT=true deliberately emits OTP code and recipient for staging diagnostics.
     - criterion: C06
       reason: Cross-service propagation requires a central receiver and a real downstream service.
     - criterion: C07

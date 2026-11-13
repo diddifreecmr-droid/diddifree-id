@@ -12,6 +12,7 @@ from typing import Any
 
 from identity_app.core.metrics import observe_telemetry_dropped
 from identity_app.core.observability import OBSERVABILITY_SCHEMA_VERSION, ServiceIdentity, service_identity
+from identity_app.core.settings import settings
 from identity_app.core.tracing import current_trace_fields
 
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -85,6 +86,15 @@ class JsonFormatter(logging.Formatter):
             value = getattr(record, field, None)
             if value is not None:
                 attributes[target] = value
+        # This explicit staging escape hatch is intentionally narrow: only
+        # OTP senders may attach these fields, and they are emitted only when
+        # an operator sets OTP_LOG_PLAINTEXT=true. All ordinary log messages
+        # still go through the unconditional credential/PII redaction below.
+        if settings.otp_log_plaintext and getattr(record, "otp_code", None):
+            attributes["otp.code"] = str(record.otp_code)
+            recipient = getattr(record, "otp_recipient", None)
+            if recipient:
+                attributes["otp.recipient"] = str(recipient)
         if record.exc_info:
             exception_type, exception, _traceback = record.exc_info
             attributes["error.type"] = exception_type.__name__ if exception_type else "Exception"

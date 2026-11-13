@@ -38,5 +38,12 @@ class LoggingOtpSender:
         )
 
     async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
-        logger.info("OTP remis au canal de développement", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP remis au canal de développement",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": request.code,
+                "otp_recipient": request.phone or request.email,
+            },
+        )
         return OtpDeliveryResult(channel=request.channel, provider="logging")

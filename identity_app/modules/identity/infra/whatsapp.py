@@ -43,7 +43,14 @@ class EvolutionWhatsAppOtpSender:
         if phone is None:
             raise RuntimeError("OTP WhatsApp nécessite un numéro de téléphone")
 
-        logger.info("OTP WhatsApp remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP WhatsApp remis au fournisseur",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": code,
+                "otp_recipient": phone,
+            },
+        )
 
         if not settings.evolution_api_url or not settings.evolution_api_key or not settings.evolution_instance:
             raise RuntimeError(

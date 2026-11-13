@@ -43,7 +43,14 @@ class YellikaSmsOtpSender:
                 "OTP_SMS_PROVIDER=yellika requires YELLIKA_SMS_TOKEN and YELLIKA_SMS_SENDER_ID",
             )
 
-        logger.info("OTP Yellika SMS remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP Yellika SMS remis au fournisseur",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": request.code,
+                "otp_recipient": request.phone,
+            },
+        )
 
         url = f"{settings.yellika_sms_base_url.rstrip('/')}/api/v3/sms/send"
         payload = {

@@ -149,7 +149,8 @@ Avec une inscription e-mail uniquement, `phone` vaut `null`.
 devrait l'envoyer explicitement pour que le choix de livraison soit clair.
 S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
 `email` nécessite une adresse e-mail enregistrée sur le compte. Quel que soit
-le canal, le code OTP n'est jamais journalisé.
+le canal, `OTP_LOG_PLAINTEXT=true` écrit le code et son destinataire dans les
+logs de diagnostic; `false` les masque.
 
 **Requête e-mail avec téléphone** : `{ "phone": "+2250700000000", "channel": "email" }`
 

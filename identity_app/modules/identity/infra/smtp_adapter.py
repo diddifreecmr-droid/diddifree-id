@@ -48,7 +48,14 @@ class SmtpOtpSender:
         phone = request.phone
         email = request.email
         code = request.code
-        logger.info("OTP email prêt à être remis", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP email prêt à être remis",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": code,
+                "otp_recipient": phone or email,
+            },
+        )
 
         recipient = email
         if recipient is None and phone is not None:

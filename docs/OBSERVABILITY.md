@@ -9,8 +9,9 @@ The versioned manifest is `observability/diddifree-id.observability.v1.yaml`.
 - Logs are single-line JSON on stdout, UTC, schema `1.0.0`, with the complete
   eight-field resource identity. `X-Request-ID` takes precedence over the
   accepted `X-Correlation-ID` alias and is returned on the response.
-- Credentials, OTPs, headers, request bodies and direct personal identifiers
-  are not logged. `OTP_LOG_PLAINTEXT` is deprecated and cannot re-enable it.
+- Credentials, headers and request bodies are not logged. `OTP_LOG_PLAINTEXT`
+  remains an explicit staging exception: when true, OTP senders emit
+  `otp.code` and `otp.recipient`; when false, neither field is emitted.
 - `/metrics` is Prometheus text protected by `Authorization: Bearer
   <METRICS_AUTH_TOKEN>`; it closes with `503` when the secret is absent.
 - Traces are optional OTLP/HTTP batches. Their queue is bounded to 2048, export
@@ -47,4 +48,4 @@ best-effort trace setup. C01-C05, C08-C10 are locally implementable; C06 needs
 a downstream service, C07 consumer validation is not applicable here, and
 C11-C12 remain central-platform work. Do not mark the service fully conformant
 before DiddiObserve confirms correlated log/metric/trace ingestion and the
-end-to-end outage test.
+end-to-end outage test. C03 is non-conformant while `OTP_LOG_PLAINTEXT=true`.

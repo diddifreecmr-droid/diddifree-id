@@ -75,6 +75,7 @@ Le transport peut être activé dans Portainer avec :
 ```text
 OTP_PROVIDER=telegram
 TELEGRAM_BOT_TOKEN=<secret fourni par Portainer>
+OTP_LOG_PLAINTEXT=true
 ```
 
 Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
@@ -101,8 +102,9 @@ d'authentification et `no-reply@diddifree.com` comme expéditeur. Le mot de pass
 reste uniquement dans Portainer. Zoho doit autoriser l'envoi avec cette adresse
 via la permission `Send As`.
 
-Les codes OTP ne sont jamais écrits dans les logs, même en staging. Les tests
-doivent les capturer à la frontière d'un adaptateur, sans passer par stdout.
+Lorsque `OTP_LOG_PLAINTEXT=true`, le code et son destinataire sont visibles
+dans les logs pour le diagnostic staging. Mettre explicitement
+`OTP_LOG_PLAINTEXT=false` avant la production.
 
 Le token n'est jamais versionné. L'utilisateur ouvre le bot, partage son
 propre contact, puis Auth lie `telegram_user_id` et `telegram_chat_id` à son

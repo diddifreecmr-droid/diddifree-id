@@ -42,7 +42,14 @@ class SenndoSmsOtpSender:
         if not settings.senndo_sms_api_key:
             raise RuntimeError("OTP_SMS_PROVIDER=senndo requires SENNDO_SMS_API_KEY")
 
-        logger.info("OTP Senndo SMS remis au fournisseur", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP Senndo SMS remis au fournisseur",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": request.code,
+                "otp_recipient": request.phone,
+            },
+        )
 
         idempotency_key = request.idempotency_key or _idempotency_key(request.phone, request.code)
         payload = {

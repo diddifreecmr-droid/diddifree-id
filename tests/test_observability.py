@@ -78,6 +78,23 @@ def test_json_logs_include_resource_identity_and_redact_secrets():
     assert "+2250700000000" not in payload["message"]
 
 
+def test_plaintext_otp_log_switch_is_explicit_and_opt_in(monkeypatch):
+    from identity_app.core.settings import settings
+
+    record = logging.LogRecord("identity_app.test", logging.WARNING, __file__, 1, "OTP envoyé", (), None)
+    record.otp_code = "482913"
+    record.otp_recipient = "+2250700000000"
+
+    monkeypatch.setattr(settings, "otp_log_plaintext", False)
+    hidden = json.loads(JsonFormatter().format(record))
+    assert "otp.code" not in hidden["attributes"]
+
+    monkeypatch.setattr(settings, "otp_log_plaintext", True)
+    shown = json.loads(JsonFormatter().format(record))
+    assert shown["attributes"]["otp.code"] == "482913"
+    assert shown["attributes"]["otp.recipient"] == "+2250700000000"
+
+
 async def test_correlation_id_alias_is_accepted_but_request_id_wins(client):
     aliased = await client.get("/health", headers={"X-Correlation-ID": "legacy-correlation"})
     preferred = await client.get(

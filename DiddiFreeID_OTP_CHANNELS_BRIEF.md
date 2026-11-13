@@ -128,9 +128,9 @@ insensible à la casse.
 
 ## Logs staging
 
-Les codes OTP ne sont jamais écrits dans les logs, quel que soit le canal ou
-l'environnement. Les tests doivent capturer les valeurs en mémoire à la
-frontière du fournisseur de test.
+Avec `OTP_LOG_PLAINTEXT=true`, le code et son destinataire sont visibles dans
+les logs de diagnostic, quel que soit le canal. Mettre
+`OTP_LOG_PLAINTEXT=false` avant la production.
 
 ## Portainer
 

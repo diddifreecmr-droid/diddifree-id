@@ -180,7 +180,14 @@ class TelegramOtpSender:
         code = request.code
         if phone is None:
             raise RuntimeError("OTP Telegram nécessite un numéro de téléphone")
-        logger.info("OTP Telegram prêt à être remis", extra={"event": "otp.delivery.dispatched"})
+        logger.warning(
+            "OTP Telegram prêt à être remis",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": code,
+                "otp_recipient": phone,
+            },
+        )
 
         async with async_session_factory() as session:
             result = await session.execute(
