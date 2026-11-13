@@ -42,6 +42,7 @@ os.environ.setdefault("OTP_LOG_PLAINTEXT", "true")
 os.environ.setdefault("JWT_PRIVATE_KEY_PATH", "keys/private.pem")
 os.environ.setdefault("JWT_PUBLIC_KEY_PATH", "keys/public.pem")
 os.environ.setdefault("JWT_ACTIVE_KID", "dev-2026-07-01")
+os.environ.setdefault("METRICS_AUTH_TOKEN", "test-metrics-token")
 # Exercises the service-to-service path of contract §5.
 SERVICE_KEY = "test-service-key"
 os.environ.setdefault("SERVICE_API_KEYS", SERVICE_KEY)

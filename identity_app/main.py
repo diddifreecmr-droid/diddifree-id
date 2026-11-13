@@ -10,18 +10,19 @@ it. Consumers can use either and get the same key set.
 """
 
 import logging
+import secrets
 import time
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from identity_app.core.errors import ApiError, api_error_handler, api_error_response
-from identity_app.core.health import readiness_report
+from identity_app.core.health import readiness_report, workers_report
 from identity_app.core.lifespan import lifespan
 from identity_app.core.logging import configure_logging, new_request_id, reset_request_id, set_request_id
-from identity_app.core.metrics import metrics_payload, observe_http_request, route_template
+from identity_app.core.metrics import configure_metrics, metrics_payload, observe_http_request, route_template
 from identity_app.core.settings import settings
 from identity_app.modules.identity.presentation.admin_router import router as admin_router
 from identity_app.modules.identity.presentation.auth_router import router as auth_router
@@ -31,7 +32,8 @@ from identity_app.modules.identity.presentation.reporting_router import router a
 from identity_app.modules.identity.presentation.support_router import router as support_router
 from identity_app.modules.identity.presentation.users_router import router as users_router
 
-configure_logging(settings.log_level)
+configure_logging(settings.log_level, component="api")
+configure_metrics(component="api")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -73,6 +75,7 @@ async def request_logging_middleware(request: Request, call_next):
         logger.exception(
             "http_request_failed",
             extra={
+                "event": "http.request.failed",
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": 500,
@@ -95,6 +98,7 @@ async def request_logging_middleware(request: Request, call_next):
         log_method(
             "http_request_completed",
             extra={
+                "event": "http.request.completed",
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": status_code,
@@ -163,7 +167,40 @@ async def readiness() -> JSONResponse:
     )
 
 
+@app.get("/health/workers", tags=["ops"])
+async def workers_health() -> JSONResponse:
+    """Expose the periodic worker state without affecting API readiness."""
+
+    healthy, workers = await workers_report(app)
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "degraded", "workers": workers},
+    )
+
+
 @app.get("/metrics", include_in_schema=False)
-async def metrics() -> Response:
+async def metrics(authorization: str | None = Header(default=None)) -> Response:
+    """Export metrics only to the configured DiddiObserve scraper."""
+
+    expected = settings.metrics_auth_token
+    provided = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    if not expected:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": "METRICS_NOT_CONFIGURED", "message": "Métriques indisponibles."}},
+        )
+    if not secrets.compare_digest(provided, expected):
+        return JSONResponse(
+            status_code=401,
+            content={"error": {"code": "METRICS_UNAUTHORIZED", "message": "Accès métriques refusé."}},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # Scraping refreshes the worker gauge in the API process. A Redis problem
+    # affects this observability signal only; it cannot make business traffic
+    # fail and it does not alter the protected response.
+    try:
+        await workers_report(app)
+    except Exception:
+        logger.warning("metrics_worker_refresh_failed", exc_info=True, extra={"event": "metrics.worker_refresh_failed"})
     payload, content_type = metrics_payload()
     return Response(content=payload, media_type=content_type)

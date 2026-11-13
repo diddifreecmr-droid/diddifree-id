@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, Info, generate_latest
+
+from identity_app.core.observability import service_identity
+
+SERVICE_INFO = Info(
+    "diddifree_service",
+    "Stable DiddiFreeID service identity.",
+)
 
 HTTP_REQUESTS = Counter(
     "diddifree_http_requests",
@@ -44,6 +51,22 @@ DEPENDENCY_HEALTH = Gauge(
     "Current readiness state of a DiddiFreeID dependency (1 healthy, 0 unhealthy).",
     ("dependency",),
 )
+WORKER_HEALTH = Gauge(
+    "diddifree_worker_health",
+    "Current worker heartbeat state (1 healthy, 0 unhealthy).",
+    ("worker",),
+)
+WORKER_LAST_SUCCESS = Gauge(
+    "diddifree_worker_last_success_timestamp_seconds",
+    "Unix timestamp of the latest successful worker execution.",
+    ("worker",),
+)
+
+
+def configure_metrics(*, component: str | None = None) -> None:
+    """Publish one bounded identity record, never per user or request."""
+
+    SERVICE_INFO.info(service_identity(component=component).as_dict())
 
 
 def route_template(scope: dict) -> str:
@@ -85,3 +108,9 @@ def observe_event_publish(*, event: str, result: str) -> None:
 
 def observe_dependency_health(*, dependency: str, healthy: bool) -> None:
     DEPENDENCY_HEALTH.labels(dependency).set(1 if healthy else 0)
+
+
+def observe_worker_health(*, worker: str, healthy: bool, last_success_timestamp: float | None) -> None:
+    WORKER_HEALTH.labels(worker).set(1 if healthy else 0)
+    if last_success_timestamp is not None:
+        WORKER_LAST_SUCCESS.labels(worker).set(last_success_timestamp)

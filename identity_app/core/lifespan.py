@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from identity_app.core.database import ping_db
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
+from identity_app.core.tracing import configure_tracing, shutdown_tracing
 from identity_app.modules.identity.infra.telegram import TelegramBotWorker, TelegramClient
 from identity_app.modules.identity.infra.token_service import TokenService
 
@@ -32,6 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     telegram_client: TelegramClient | None = None
     telegram_task: asyncio.Task | None = None
     try:
+        # Telemetry is best-effort. Its configuration must never gate startup.
+        configure_tracing(app)
         # Validate before serving traffic. Review accounts must never silently
         # fall back to a normal OTP delivery because a Portainer secret is bad.
         if settings.review_static_otp_enabled:
@@ -103,4 +106,5 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if telegram_client is not None:
             await telegram_client.close()
         await app.state.redis.aclose()
+        shutdown_tracing()
         logger.info("lifespan shutdown complete")

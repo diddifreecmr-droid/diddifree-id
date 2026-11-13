@@ -1,69 +1,121 @@
-# Observabilité DiddiFreeID
+# DiddiFreeID Observability v1
 
-## V1 livrée
+Ce document décrit l'implémentation locale de Diddi Observability v1 dans le
+service DiddiFreeID. Le nom canonique de service est toujours `diddifree-id`.
+Le nom du dépôt ou de l'application visible (`DiddiFreeID` / `diddiauth`) ne
+doit pas être utilisé comme valeur de `service.name`.
 
-DiddiFreeID expose les signaux suivants :
+## Signaux exposés
 
-- logs JSON sur stdout Docker ;
-- `X-Request-ID` propagé dans les requêtes et la réponse ;
-- `/health/live` pour la disponibilité du processus ;
-- `/health/ready` pour PostgreSQL, les migrations, Redis, les clés JWT et le fournisseur OTP ;
-- `/metrics` au format Prometheus ;
-- métriques HTTP, OTP, événements Redis, service tokens, capabilities et santé des dépendances.
-- logs JSON centralisés dans Loki via Grafana Alloy.
+- **Logs** : JSON UTC sur stdout. Chaque entrée contient `service`,
+  `service_version`, `environment`, `instance_id`, `component`, `event` et
+  `request_id`; `trace_id` et `span_id` sont ajoutés lorsqu'une trace est
+  active. Les en-têtes et corps HTTP ne sont jamais journalisés. Les valeurs
+  ressemblant à un secret (`Authorization`, token, password, secret, API key,
+  cookie) sont masquées dans la sortie JSON.
+- **Métriques** : `GET /metrics`, format Prometheus, protégé par
+  `Authorization: Bearer <METRICS_AUTH_TOKEN>`. Sans secret configuré, la
+  route répond `503 METRICS_NOT_CONFIGURED`; les opérations métier restent
+  disponibles. Les labels sont bornés : routes FastAPI normalisées, méthode,
+  code HTTP, service, provider, résultat et nom de worker uniquement.
+- **Traces** : OpenTelemetry est désactivé par défaut. Quand `OTEL_ENABLED`
+  est vrai et qu'un endpoint OTLP HTTP est configuré, FastAPI et HTTPX sont
+  instrumentés. `traceparent`/`tracestate` sont ajoutés comme métadonnées des
+  entrées Redis Stream pour les événements de domaine, sans modifier leur
+  payload contractuel.
+- **Santé** : `/health/live` ne consulte aucune dépendance. `/health/ready`
+  vérifie PostgreSQL, migrations, Redis, clés JWT et configuration OTP.
+  `/health/workers` contrôle le heartbeat Redis de `account-purger`; son état
+  ne rend pas l'API non-ready.
 
-Les labels Prometheus n'utilisent pas d'identifiant utilisateur, de téléphone, d'e-mail ou de token.
+L'option historique `OTP_LOG_PLAINTEXT=true` reste une exception explicite
+pour le staging et le diagnostic. Elle doit rester à `false` en production :
+un code OTP est une donnée d'authentification et ne doit pas être centralisé
+en clair.
 
-## Stack locale et Portainer
+## Raccordement DiddiObserve
 
-Les deux fichiers Compose démarrent :
+L'équipe centrale doit fournir, via le coffre/Portainer et jamais via Git :
 
-- Prometheus sur `${PROMETHEUS_HOST_PORT:-19090}` ;
-- Grafana sur `${GRAFANA_HOST_PORT:-13000}` ;
-- Loki sur `${LOKI_HOST_PORT:-13100}` ;
-- PostgreSQL et Redis sur leurs ports déjà configurables.
+| Valeur | Utilisation |
+| --- | --- |
+| `METRICS_AUTH_TOKEN` | Bearer secret du scraper DiddiObserve et de Prometheus local |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | URL OTLP HTTP de traces complète, généralement terminée par `/v1/traces` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | En-têtes OTLP requis, format `cle=valeur,cle2=valeur2` |
+| `SERVICE_INSTANCE_ID` | Identifiant stable de l'instance si `HOSTNAME` ne suffit pas |
+| `SERVICE_VERSION` | Révision/version réellement déployée |
 
-Prometheus scrape `http://app:8000/metrics` sur le réseau Docker interne. Grafana est préconfiguré
-avec Prometheus, Loki et le dashboard `DiddiFreeID Overview`. Alloy lit les logs Docker uniquement
-pour les conteneurs portant le label `com.diddifree.observability=true`.
-
-Les fichiers de configuration sont intégrés aux images d'observabilité construites depuis
-`observability/Dockerfile`. Cette approche évite les bind mounts de fichiers de configuration,
-qui peuvent être fragiles avec les stacks Git Portainer.
-
-Les logs sont conservés dans le volume `loki_data` avec une rétention initiale de 7 jours. Le volume
-`alloy_data` conserve la position de lecture afin d'éviter de renvoyer tout l'historique après un
-redémarrage.
-
-Dans Portainer, définir au minimum :
+Configurer ensuite :
 
 ```ini
-PROMETHEUS_HOST_PORT=19090
-GRAFANA_HOST_PORT=13000
-LOKI_HOST_PORT=13100
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=<secret-fort>
+METRICS_AUTH_TOKEN=<secret-du-coffre>
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=<fourni-par-diddiobserve>
+OTEL_EXPORTER_OTLP_HEADERS=<fourni-par-diddiobserve-si-requis>
+SERVICE_VERSION=<revision-deployee>
+SERVICE_INSTANCE_ID=<instance-ou-pod>
 ```
 
-Le mot de passe Grafana ne doit pas être ajouté à Git. Les volumes `prometheus_data`, `grafana_data`,
-`loki_data` et `alloy_data` doivent être conservés lors des redeploys.
+Le collecteur doit scraper le port interne `8000`, chemin `/metrics`, avec le
+Bearer token ci-dessus. Il doit accepter les ressources OTLP suivantes :
 
-## Alertes V1
+```text
+service.name=diddifree-id
+service.version=<SERVICE_VERSION>
+deployment.environment.name=<ENVIRONMENT>
+service.instance.id=<SERVICE_INSTANCE_ID ou HOSTNAME>
+diddifree.component=api
+```
 
-Les règles livrées couvrent :
+L'exporteur est asynchrone (batch processor). Une indisponibilité du
+collecteur fait perdre ou retarder des signaux, mais ne bloque ni les requêtes
+HTTP ni les commandes métier.
 
-- cible DiddiFreeID indisponible ;
-- taux HTTP 5xx supérieur à 5 % ;
-- latence p95 supérieure à une seconde ;
-- dépendance unhealthy ;
-- lecture de capability obsolète.
+## Compose de revue
 
-Prometheus évalue les règles, mais la notification nécessite encore un Alertmanager ou l'intégration
-de notification choisie par l'infrastructure.
+Les deux Compose ont été préparés, sans redéploiement :
 
-## V2 restante
+- leur healthcheck applicatif utilise maintenant `/health/live` ;
+- Prometheus écrit le secret de métriques dans un fichier temporaire privé et
+  l'utilise par `authorization.credentials_file` ;
+- `account-purger` reçoit Redis et possède son propre healthcheck basé sur le
+  heartbeat.
 
-- Alertmanager et routage vers Telegram/e-mail/Slack ;
-- tracing OpenTelemetry avec `trace_id` entre les modules ;
-- SLO/SLI, rétention et runbooks d'incident ;
-- métriques d'infrastructure PostgreSQL, Redis et conteneurs.
+En Portainer, renseigner les valeurs ci-dessus, reconstruire l'image puis
+vérifier que Prometheus retrouve l'état `UP` pour `diddifree-id`. Ne pas
+mettre les valeurs réelles dans une variable Git, un ticket ou une capture.
+
+## Critères C01-C12
+
+| Critère | Statut local | Mise en œuvre |
+| --- | --- | --- |
+| C01 identité | couvert | ressource canonique `diddifree-id`, version, environnement, instance, composant |
+| C02 logs JSON UTC | couvert | formateur stdout JSON et timestamp RFC3339 UTC |
+| C03 corrélation | couvert | `X-Request-ID` entrant/sortant, trace IDs quand OTEL est actif |
+| C04 données sensibles | couvert avec exception documentée | absence de body/header et masquage défensif; `OTP_LOG_PLAINTEXT` est une exception contrôlée |
+| C05 métriques communes | couvert | HTTP, dépendances, OTP, events, capabilities, tokens, service et workers |
+| C06 cardinalité | couvert | route template et listes de labels bornées; aucun user ID, téléphone, e-mail, token ou request ID |
+| C07 endpoint protégé | couvert | Bearer obligatoire, indisponible sans secret |
+| C08 traces HTTP | couvert localement | OpenTelemetry FastAPI/HTTPX configurable vers OTLP |
+| C09 traces asynchrones | couvert côté publication | W3C `traceparent`/`tracestate` ajoutés à Redis Stream; aucun consommateur asynchrone n'existe dans ce service |
+| C10 santé | couvert | liveness indépendante et readiness des dépendances critiques |
+| C11 workers | couvert | heartbeat, endpoint dédié, métriques et healthcheck `account-purger` |
+| C12 résilience | couvert localement | échecs OTLP et du bus ne font pas échouer le métier; export batch non bloquant |
+
+## Validation centrale encore requise
+
+Les éléments suivants ne peuvent être déclarés conformes qu'après intervention
+de DiddiObserve :
+
+1. fournir l'endpoint OTLP et, si nécessaire, les en-têtes d'authentification ;
+2. déposer `METRICS_AUTH_TOKEN` dans le coffre Portainer ;
+3. redéployer après revue ;
+4. confirmer dans DiddiObserve l'ingestion d'un log, d'une métrique et d'une
+   trace corrélés avec le même `service.name` ;
+5. interrompre volontairement le collecteur pour confirmer que l'authentification
+   et les routes métier continuent de répondre.
+
+L'absence actuelle d'un consommateur Redis local est le seul cas non applicable
+à une validation de parcours asynchrone complet. La publication porte déjà le
+contexte; le module qui consommera l'événement doit l'extraire avec la même
+propagation W3C.

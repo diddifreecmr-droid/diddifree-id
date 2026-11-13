@@ -9,6 +9,16 @@ services:
       APP_HOST_PORT: ${APP_HOST_PORT:-18010}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
+      SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
+      SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
+      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:-}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-3}
+      OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
+      WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
       # The keys live in the persistent Docker volume mounted below.
       JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
       JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
@@ -54,7 +64,7 @@ services:
     ports:
       - "${APP_HOST_PORT:-18010}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -84,14 +94,26 @@ services:
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
+      REDIS_URL: redis://redis:6379/0
       ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
+      SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
+      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
+      WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
     depends_on:
       db:
         condition: service_healthy
       app:
         condition: service_healthy
     command: ["sh", "-c", "while true; do python scripts/purge_deleted_accounts.py; sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "python", "scripts/worker_healthcheck.py", "account-purger"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     labels:
       com.diddifree.observability: "true"
 
@@ -133,11 +155,15 @@ services:
       target: prometheus
     ports:
       - "${PROMETHEUS_HOST_PORT:-19090}:9090"
+    environment:
+      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:-}
     volumes:
       - prometheus_data:/prometheus
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >
+      umask 077;
+      printf '%s' "$$METRICS_AUTH_TOKEN" > /tmp/diddifree-metrics-token;
+      exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
     depends_on:
       app:
         condition: service_healthy

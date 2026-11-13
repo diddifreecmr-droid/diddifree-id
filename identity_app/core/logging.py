@@ -10,9 +10,25 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
+from identity_app.core.observability import ServiceIdentity, service_identity
+from identity_app.core.tracing import current_trace_fields
+
 _request_id: ContextVar[str] = ContextVar("request_id", default="-")
 _request_id_pattern = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _record_factory_configured = False
+_identity: ServiceIdentity | None = None
+
+# This is intentionally a last line of defence. Application code must not log
+# request bodies or headers, but third-party exceptions occasionally include a
+# URL or an Authorization header.
+_SENSITIVE_VALUE = re.compile(
+    r"(?i)(authorization|token|secret|password|api[_-]?key|cookie)"
+    r"([\s:=]+)(bearer\s+)?([^\s,;\]\}\"']+)",
+)
+
+
+def _redact(value: str) -> str:
+    return _SENSITIVE_VALUE.sub(lambda match: f"{match.group(1)}{match.group(2)}***", value)
 
 
 def new_request_id(candidate: str | None = None) -> str:
@@ -51,13 +67,17 @@ class JsonFormatter(logging.Formatter):
     )
 
     def format(self, record: logging.LogRecord) -> str:
+        identity = _identity or service_identity()
         payload: dict[str, Any] = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "level": record.levelname,
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "severity": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "event": getattr(record, "event", record.msg if isinstance(record.msg, str) else "log"),
+            "message": _redact(record.getMessage()),
             "request_id": getattr(record, "request_id", get_request_id()),
+            **identity.as_dict(),
         }
+        payload.update(current_trace_fields())
 
         for field in self._extra_fields:
             value = getattr(record, field, None)
@@ -70,10 +90,12 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def configure_logging(level: str = "INFO") -> None:
+def configure_logging(level: str = "INFO", *, component: str | None = None) -> None:
     """Configure application logs without replacing Uvicorn's own loggers."""
 
-    global _record_factory_configured
+    global _identity, _record_factory_configured
+
+    _identity = service_identity(component=component)
 
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))

@@ -14,6 +14,7 @@ from sqlalchemy import text
 from identity_app.core.database import engine
 from identity_app.core.metrics import observe_dependency_health
 from identity_app.core.settings import settings
+from identity_app.core.worker_health import worker_health_report
 
 
 def _migration_heads() -> set[str]:
@@ -102,3 +103,19 @@ async def readiness_report(app: FastAPI) -> tuple[bool, dict[str, Any]]:
     observe_dependency_health(dependency="otp_provider", healthy=checks["otp_provider"]["status"] == "ok")
     ready = all(check["status"] == "ok" for check in checks.values())
     return ready, checks
+
+
+async def workers_report(app: FastAPI) -> tuple[bool, dict[str, Any]]:
+    """Report periodic workers without coupling API readiness to them."""
+
+    redis = getattr(app.state, "redis", None)
+    if redis is None:
+        return False, {"account-purger": {"status": "error", "worker": "account-purger"}}
+    try:
+        report = await asyncio.wait_for(
+            worker_health_report(redis, worker="account-purger"),
+            timeout=settings.health_check_timeout_seconds,
+        )
+    except Exception:
+        report = {"status": "error", "worker": "account-purger"}
+    return report["status"] == "ok", {"account-purger": report}

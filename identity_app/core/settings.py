@@ -30,6 +30,23 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     health_check_timeout_seconds: float = 2.0
+    # --- Observability -----------------------------------------------------
+    # `diddifree-id` is intentionally not configurable: all services and
+    # DiddiObserve use this canonical resource name to join signals.
+    service_version: str = "0.1.0"
+    service_instance_id: str = ""
+    observability_component: str = "api"
+    # Metrics are an operational endpoint, never a public API. An absent
+    # token disables only scraping (503); it never prevents business traffic.
+    metrics_auth_token: str = ""
+    # OTLP remains opt-in until DiddiObserve provides its collector endpoint.
+    otel_enabled: bool = False
+    otel_exporter_otlp_traces_endpoint: str = ""
+    otel_exporter_otlp_headers: str = ""
+    otel_export_timeout_seconds: float = 3.0
+    otel_trace_sample_ratio: float = 0.1
+    worker_heartbeat_stale_seconds: int = 7_200
+    worker_heartbeat_ttl_seconds: int = 14_400
     # The API contract states the base URL as `.../identity/v1`, so the prefix
     # carries the module segment too. A gateway that already strips `/identity`
     # can set API_PREFIX=/v1 without a code change.

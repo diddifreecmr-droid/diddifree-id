@@ -1,0 +1,103 @@
+apiVersion: diddi.observability/v1
+kind: ObservabilityManifest
+metadata:
+  name: diddifree-id
+  version: 1
+  repository: diddi-free-id
+spec:
+  service:
+    canonical_name: diddifree-id
+    display_name: DiddiFreeID
+    resource_attributes:
+      - service.name
+      - service.version
+      - deployment.environment.name
+      - service.instance.id
+      - diddifree.component
+  components:
+    - name: api
+      type: http-api
+      internal_port: 8000
+      endpoints:
+        liveness: /health/live
+        readiness: /health/ready
+        workers: /health/workers
+        metrics: /metrics
+      metrics_authentication:
+        scheme: bearer
+        secret_ref: METRICS_AUTH_TOKEN
+    - name: account-purger
+      type: periodic-worker
+      schedule: every 3600 seconds
+      heartbeat:
+        backend: redis
+        key: identity:observability:worker:account-purger
+        stale_after_seconds_env: WORKER_HEARTBEAT_STALE_SECONDS
+        ttl_seconds_env: WORKER_HEARTBEAT_TTL_SECONDS
+  signals:
+    logs:
+      transport: stdout-json
+      timestamp: rfc3339-utc
+      correlation:
+        request_header: X-Request-ID
+        response_header: X-Request-ID
+        trace_fields: [trace_id, span_id]
+      redaction:
+        fields_and_patterns: [authorization, token, secret, password, api_key, cookie]
+        exception_flag: OTP_LOG_PLAINTEXT
+    metrics:
+      format: prometheus
+      path: /metrics
+      labels_policy: bounded-only
+      families:
+        - diddifree_http_requests_total
+        - diddifree_http_request_duration_seconds
+        - diddifree_dependency_health
+        - diddifree_worker_health
+        - diddifree_worker_last_success_timestamp_seconds
+        - diddifree_otp_deliveries_total
+        - diddifree_event_publish_total
+        - diddifree_service_token_issuance_total
+        - diddifree_capability_events_total
+        - diddifree_capability_stale_reads_total
+    traces:
+      standard: opentelemetry
+      protocol: otlp-http
+      enabled_env: OTEL_ENABLED
+      endpoint_env: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+      headers_secret_ref: OTEL_EXPORTER_OTLP_HEADERS
+      sampling_ratio_env: OTEL_TRACE_SAMPLE_RATIO
+      propagation:
+        http: w3c-trace-context
+        redis_stream: [traceparent, tracestate]
+      delivery: best-effort-batch
+  dependencies:
+    - name: postgresql
+      purpose: identity data and migrations
+      readiness: required
+    - name: redis
+      purpose: cache, rate limits, events and worker heartbeats
+      readiness: required
+    - name: diddiobserve
+      purpose: optional OTLP trace collector
+      readiness: not-required
+  configuration:
+    required_from_central_platform:
+      - METRICS_AUTH_TOKEN
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
+    optional:
+      - SERVICE_INSTANCE_ID
+      - SERVICE_VERSION
+      - OTEL_TRACE_SAMPLE_RATIO
+      - WORKER_HEARTBEAT_STALE_SECONDS
+      - WORKER_HEARTBEAT_TTL_SECONDS
+  deployment:
+    compose_files:
+      - docker-compose.yml
+      - docker-compose.portainer.yml
+    secret_policy: secrets-must-not-be-committed
+  compliance:
+    protocol_version: diddi-observability-v1
+    local_validation_required: true
+    central_ingestion_validation_required: true

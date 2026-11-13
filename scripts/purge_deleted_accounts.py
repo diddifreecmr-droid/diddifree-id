@@ -26,8 +26,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from identity_app.core.database import async_session_factory, engine
+from identity_app.core.logging import configure_logging
+from identity_app.core.metrics import configure_metrics
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
+from identity_app.core.worker_health import record_worker_heartbeat
 from identity_app.modules.identity.domain.events import UserDeleted
 from identity_app.modules.identity.infra import models as orm
 from identity_app.modules.identity.infra.cache import RedisProfileCache
@@ -36,7 +39,7 @@ from identity_app.shared_kernel.events.bus import RedisEventPublisher
 logger = logging.getLogger("account_purger")
 
 
-async def purge_due_accounts() -> int:
+async def purge_due_accounts(*, redis=None) -> int:  # noqa: ANN001
     now = datetime.now(UTC)
     deleted: list[UserDeleted] = []
     async with async_session_factory() as session, session.begin():
@@ -109,7 +112,8 @@ async def purge_due_accounts() -> int:
     if not deleted:
         return 0
 
-    redis = create_redis_pool(settings.redis_url)
+    owns_redis = redis is None
+    redis = redis or create_redis_pool(settings.redis_url)
     try:
         cache = RedisProfileCache(redis)
         for event in deleted:
@@ -118,16 +122,43 @@ async def purge_due_accounts() -> int:
         for event in deleted:
             await publisher.publish(event)
     finally:
-        await redis.aclose()
+        if owns_redis:
+            await redis.aclose()
     return len(deleted)
 
 
 async def main() -> None:
-    count = await purge_due_accounts()
-    logger.info("account_purger terminé : %s compte(s) anonymisé(s)", count)
-    await engine.dispose()
+    configure_logging(settings.log_level, component="account-purger")
+    configure_metrics(component="account-purger")
+    redis = create_redis_pool(settings.redis_url)
+    try:
+        count = await purge_due_accounts(redis=redis)
+        await record_worker_heartbeat(
+            redis,
+            worker="account-purger",
+            status="ok",
+            details={"anonymized_accounts": count},
+        )
+        logger.info(
+            "account_purger terminé : %s compte(s) anonymisé(s)",
+            count,
+            extra={"event": "worker.account_purger.completed"},
+        )
+    except Exception:
+        try:
+            await record_worker_heartbeat(redis, worker="account-purger", status="error")
+        except Exception:
+            logger.warning(
+                "account_purger heartbeat impossible",
+                exc_info=True,
+                extra={"event": "worker.account_purger.heartbeat_failed"},
+            )
+        logger.exception("account_purger failed", extra={"event": "worker.account_purger.failed"})
+        raise
+    finally:
+        await redis.aclose()
+        await engine.dispose()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(main())

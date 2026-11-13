@@ -26,6 +26,11 @@ dependencies = [
     "redis[hiredis]>=5.0",
     "alembic>=1.13",
     "prometheus-client>=0.20",
+    "opentelemetry-api>=1.28,<2",
+    "opentelemetry-sdk>=1.28,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.28,<2",
+    "opentelemetry-instrumentation-fastapi>=0.49b0,<1",
+    "opentelemetry-instrumentation-httpx>=0.49b0,<1",
 ]
 
 [project.optional-dependencies]
