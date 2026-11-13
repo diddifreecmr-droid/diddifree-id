@@ -2,10 +2,11 @@
 
 ## First connection
 
-1. Inject the values listed in `docs/OBSERVABILITY.md` through the deployment secret store.
+1. Inject the values listed in `docs/OBSERVABILITY.md` through the deployment secret store, including a mounted trusted CA path for OTLP.
 2. Deploy a unique immutable `SERVICE_VERSION`, `ENVIRONMENT` and `DIDDI_DEPLOYMENT_ID`.
 3. Confirm `/health/live`, `/health/ready` and `/metrics` with the scraper credential from inside the observability network.
-4. Generate one safe test request with an `X-Request-ID`; find its JSON log, metric increment and trace in DiddiObserve.
+4. Mount `OBSERVABILITY_LOG_VOLUME_NAME` read-only in DiddiObserve and collect `/var/log/diddifree/observability.jsonl`; do not add a Docker socket.
+5. Generate one safe test request with an `X-Request-ID`; find its JSON log, metric increment and trace in DiddiObserve.
 
 ## Incident checks
 

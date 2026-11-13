@@ -31,7 +31,7 @@ from identity_app.core.logging import configure_logging, reset_request_id, set_r
 from identity_app.core.metrics import configure_metrics, observe_job
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
-from identity_app.core.tracing import scheduled_job_trace
+from identity_app.core.tracing import configure_tracing, scheduled_job_trace, shutdown_tracing
 from identity_app.core.worker_health import record_worker_heartbeat
 from identity_app.modules.identity.domain.events import UserDeleted
 from identity_app.modules.identity.infra import models as orm
@@ -132,6 +132,7 @@ async def purge_due_accounts(*, redis=None) -> int:  # noqa: ANN001
 async def main() -> None:
     configure_logging(settings.log_level, component="account-purger")
     configure_metrics(component="account-purger")
+    configure_tracing()
     redis = create_redis_pool(settings.redis_url)
     started_at = time.perf_counter()
     execution_id: str | None = None
@@ -178,6 +179,7 @@ async def main() -> None:
             reset_request_id(request_token)
         await redis.aclose()
         await engine.dispose()
+        shutdown_tracing()
 
 
 if __name__ == "__main__":

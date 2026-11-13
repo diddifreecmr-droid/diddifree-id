@@ -8,6 +8,8 @@ import re
 import uuid
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 from identity_app.core.metrics import observe_telemetry_dropped
@@ -20,6 +22,7 @@ _request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _record_factory_configured = False
 _identity: ServiceIdentity | None = None
 _MAX_LOG_LINE_BYTES = 64 * 1024
+_FILE_HANDLER_MARKER = "_diddi_observability_file_handler"
 
 # No formatter can compensate for logging request bodies. This defensive pass
 # handles accidental secrets in third-party exception messages.
@@ -152,6 +155,40 @@ class JsonFormatter(logging.Formatter):
             )
 
 
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """A failed optional log sink must not write raw records to stderr."""
+
+    def handleError(self, _record: logging.LogRecord) -> None:
+        observe_telemetry_dropped(signal="logs", reason="file_write_error")
+
+
+def _configure_json_file_sink(root: logging.Logger, formatter: JsonFormatter) -> None:
+    """Add the optional, bounded JSONL handoff file without risking traffic."""
+
+    configured = settings.observability_log_file.strip()
+    for handler in list(root.handlers):
+        if getattr(handler, _FILE_HANDLER_MARKER, False) and getattr(handler, "baseFilename", None) != configured:
+            root.removeHandler(handler)
+            handler.close()
+
+    if not configured or any(getattr(handler, "baseFilename", None) == configured for handler in root.handlers):
+        return
+    try:
+        Path(configured).parent.mkdir(parents=True, exist_ok=True)
+        handler = _SafeRotatingFileHandler(
+            configured,
+            maxBytes=settings.observability_log_max_bytes,
+            backupCount=settings.observability_log_backup_count,
+            encoding="utf-8",
+            delay=True,
+        )
+        setattr(handler, _FILE_HANDLER_MARKER, True)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    except OSError:
+        observe_telemetry_dropped(signal="logs", reason="file_sink_unavailable")
+
+
 def configure_logging(level: str = "INFO", *, component: str | None = None) -> None:
     """Route application, library and Uvicorn logs through the same cleaner."""
 
@@ -165,6 +202,7 @@ def configure_logging(level: str = "INFO", *, component: str | None = None) -> N
     formatter = JsonFormatter()
     for handler in root.handlers:
         handler.setFormatter(formatter)
+    _configure_json_file_sink(root, formatter)
 
     # Uvicorn access logs carry raw client IPs and duplicate the normalized
     # request-completion event produced by the ASGI middleware below.

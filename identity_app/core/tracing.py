@@ -60,7 +60,7 @@ def _headers() -> dict[str, str]:
     return result
 
 
-def configure_tracing(app: FastAPI) -> bool:
+def configure_tracing(app: FastAPI | None = None) -> bool:
     """Configure tracing once, returning false when it is intentionally off.
 
     Export runs through a batch processor; exporter outages are handled outside
@@ -94,6 +94,7 @@ def configure_tracing(app: FastAPI) -> bool:
         exporter = _CountingSpanExporter(OTLPSpanExporter(
             endpoint=settings.otel_exporter_otlp_traces_endpoint,
             headers=_headers(),
+            certificate_file=settings.otel_exporter_otlp_certificate or None,
             timeout=settings.otel_export_timeout_seconds,
         ))
         provider.add_span_processor(
@@ -105,7 +106,8 @@ def configure_tracing(app: FastAPI) -> bool:
             ),
         )
         trace.set_tracer_provider(provider)
-        FastAPIInstrumentor.instrument_app(app)
+        if app is not None:
+            FastAPIInstrumentor.instrument_app(app)
         HTTPXClientInstrumentor().instrument()
         _configured = True
         logger.info("tracing_configured", extra={"event": "observability.tracing.configured"})

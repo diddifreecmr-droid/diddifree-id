@@ -16,8 +16,12 @@ services:
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
       OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
       OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability.jsonl}
+      OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
+      OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
       WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
       WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
       # The keys live in the persistent Docker volume mounted below.
@@ -77,6 +81,7 @@ services:
         condition: service_healthy
     volumes:
       - jwtkeys:/app/keys
+      - observability_logs:/var/log/diddifree
     command:
       - sh
       - -c
@@ -102,6 +107,15 @@ services:
       SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
       SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
       DIDDI_DEPLOYMENT_ID: ${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
+      OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
+      OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability.jsonl}
+      OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
+      OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
       WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
       WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
     depends_on:
@@ -110,6 +124,8 @@ services:
       app:
         condition: service_healthy
     command: ["sh", "-c", "while true; do python scripts/purge_deleted_accounts.py; sleep 3600; done"]
+    volumes:
+      - observability_logs:/var/log/diddifree
     healthcheck:
       test: ["CMD", "python", "scripts/worker_healthcheck.py", "account-purger"]
       interval: 60s
@@ -237,6 +253,8 @@ services:
       com.diddifree.observability: "true"
 
 volumes:
+  observability_logs:
+    name: ${OBSERVABILITY_LOG_VOLUME_NAME:-diddifree-id-observability-logs-staging}
   pgdata:
   jwtkeys:
   prometheus_data:

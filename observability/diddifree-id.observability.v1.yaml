@@ -38,7 +38,9 @@ spec:
         ttl_seconds_env: WORKER_HEARTBEAT_TTL_SECONDS
   signals:
     logs:
-      transport: stdout-json
+      transport: stdout-json-and-rotating-jsonl-file
+      file_env: OBSERVABILITY_LOG_FILE
+      shared_volume_env: OBSERVABILITY_LOG_VOLUME_NAME
       schema_version: 1.0.0
       correlation_headers: [X-Request-ID, X-Correlation-ID]
       max_event_bytes: 65536
@@ -60,6 +62,7 @@ spec:
       protocol: otlp-http
       endpoint_env: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
       headers_secret_ref: OTEL_EXPORTER_OTLP_HEADERS
+      certificate_path_env: OTEL_EXPORTER_OTLP_CERTIFICATE
       batching:
         max_queue_size: 2048
         schedule_delay_seconds: 5
@@ -78,6 +81,7 @@ spec:
       - METRICS_AUTH_TOKEN
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
       - OTEL_EXPORTER_OTLP_HEADERS
+      - OTEL_EXPORTER_OTLP_CERTIFICATE
       - DIDDI_DEPLOYMENT_ID
       - DIDDIFREE_ID_OPERATIONS_CONTACT
     deployment_required: [SERVICE_VERSION, ENVIRONMENT]
@@ -85,6 +89,8 @@ spec:
       - SERVICE_INSTANCE_ID
       - OTEL_ENABLED
       - OTEL_TRACE_SAMPLE_RATIO
+      - OBSERVABILITY_LOG_FILE
+      - OBSERVABILITY_LOG_VOLUME_NAME
       - WORKER_HEARTBEAT_STALE_SECONDS
       - WORKER_HEARTBEAT_TTL_SECONDS
   policies:

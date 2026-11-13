@@ -95,6 +95,27 @@ def test_plaintext_otp_log_switch_is_explicit_and_opt_in(monkeypatch):
     assert shown["attributes"]["otp.recipient"] == "+2250700000000"
 
 
+def test_optional_jsonl_sink_writes_the_same_safe_payload(tmp_path, monkeypatch):
+    from identity_app.core import logging as observability_logging
+    from identity_app.core.settings import settings
+
+    target = tmp_path / "observability.jsonl"
+    root = logging.Logger("diddifree-test-jsonl")
+    formatter = JsonFormatter()
+    monkeypatch.setattr(settings, "observability_log_file", str(target))
+    monkeypatch.setattr(settings, "observability_log_max_bytes", 1024)
+    monkeypatch.setattr(settings, "observability_log_backup_count", 1)
+
+    observability_logging._configure_json_file_sink(root, formatter)
+    root.handle(logging.LogRecord("test", logging.INFO, __file__, 1, "safe event", (), None))
+    for handler in root.handlers:
+        handler.close()
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["message"] == "safe event"
+    assert payload["resource"]["service.name"] == "diddifree-id"
+
+
 async def test_correlation_id_alias_is_accepted_but_request_id_wins(client):
     aliased = await client.get("/health", headers={"X-Correlation-ID": "legacy-correlation"})
     preferred = await client.get(

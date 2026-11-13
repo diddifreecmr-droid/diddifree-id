@@ -44,10 +44,17 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str = ""
     otel_exporter_otlp_headers: str = ""
+    # Path to the trusted DiddiObserve CA certificate mounted by deployment.
+    # An empty value uses the image's system trust store; TLS is never disabled.
+    otel_exporter_otlp_certificate: str = ""
     otel_export_timeout_seconds: float = 5.0
     otel_trace_sample_ratio: float = 0.1
     worker_heartbeat_stale_seconds: int = 7_200
     worker_heartbeat_ttl_seconds: int = 14_400
+    # Optional JSONL sink for a read-only DiddiObserve collector volume.
+    observability_log_file: str = ""
+    observability_log_max_bytes: int = 10 * 1024 * 1024
+    observability_log_backup_count: int = 5
     # The API contract states the base URL as `.../identity/v1`, so the prefix
     # carries the module segment too. A gateway that already strips `/identity`
     # can set API_PREFIX=/v1 without a code change.

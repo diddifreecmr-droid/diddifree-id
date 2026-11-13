@@ -6,7 +6,8 @@ The versioned manifest is `observability/diddifree-id.observability.v1.yaml`.
 
 ## Local signals
 
-- Logs are single-line JSON on stdout, UTC, schema `1.0.0`, with the complete
+- Logs are single-line JSON on stdout and, when `OBSERVABILITY_LOG_FILE` is
+  configured, a bounded rotating JSONL file. They include the complete
   eight-field resource identity. `X-Request-ID` takes precedence over the
   accepted `X-Correlation-ID` alias and is returned on the response.
 - Credentials, headers and request bodies are not logged. `OTP_LOG_PLAINTEXT`
@@ -31,14 +32,18 @@ never through Git:
 | `METRICS_AUTH_TOKEN` | scraper bearer credential |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | full OTLP HTTP trace endpoint |
 | `OTEL_EXPORTER_OTLP_HEADERS` | collector auth headers when required |
+| `OTEL_EXPORTER_OTLP_CERTIFICATE` | mounted path to the trusted DiddiObserve CA |
 | `DIDDI_DEPLOYMENT_ID` | deployment identifier |
 | `DIDDIFREE_ID_OPERATIONS_CONTACT` | on-call contact referenced by the manifest |
 
 Set `OTEL_ENABLED=true`, use `OTEL_TRACE_SAMPLE_RATIO=1.0` during validation
 and `0.1` in production. Set immutable `SERVICE_VERSION` and `ENVIRONMENT` for
 every deploy. The collector scrapes `api:8000/metrics` with the configured
-Bearer credential. These changes are prepared in Compose only; no Portainer
-deployment is performed by this repository change.
+Bearer credential. For the autosigned central certificate, mount the CA in the
+container and set `OTEL_EXPORTER_OTLP_CERTIFICATE` to that path; do not disable
+TLS verification. The Portainer Compose also creates the named volume from
+`OBSERVABILITY_LOG_VOLUME_NAME`; DiddiObserve may mount this exact volume
+read-only and collect `observability.jsonl` without a Docker socket.
 
 ## Verification status
 
