@@ -33,9 +33,14 @@ _SENSITIVE_VALUE = re.compile(
 _PHONE = re.compile(r"(?<!\d)\+?\d[\d .()-]{6,}\d(?!\d)")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _OTP_CODE = re.compile(r"(?i)\b(?:otp|code)[^\d]{0,24}\d{4,8}\b")
+# Telegram embeds the bot credential in the URL path (`/bot<id>:<secret>/`).
+# The generic key=value pass below cannot see it, and the phone pass only
+# happened to hide the numeric half.
+_URL_BOT_TOKEN = re.compile(r"(?i)/bot\d+:[A-Za-z0-9_-]+")
 
 
 def _redact(value: str) -> str:
+    value = _URL_BOT_TOKEN.sub("/bot***", value)
     value = _SENSITIVE_VALUE.sub(lambda match: f"{match.group(1)}{match.group(2)}***", value)
     value = _OTP_CODE.sub("OTP ***", value)
     value = _EMAIL.sub("***", value)
@@ -79,6 +84,7 @@ class JsonFormatter(logging.Formatter):
         "route": "http.route",
         "status_code": "http.response.status_code",
         "duration_ms": "duration_ms",
+        "error_code": "error.code",
     }
 
     def _payload(self, record: logging.LogRecord) -> dict[str, Any]:
@@ -208,6 +214,11 @@ def configure_logging(level: str = "INFO", *, component: str | None = None) -> N
     # request-completion event produced by the ASGI middleware below.
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.disabled = True
+    # httpx logs every outbound request line at INFO, full URL included.
+    # Provider URLs can embed credentials (Telegram puts the bot token in the
+    # path), so third-party HTTP clients only speak above INFO.
+    for logger_name in ("httpx", "httpcore"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
     for logger_name in ("uvicorn", "uvicorn.error", "alembic"):
         managed_logger = logging.getLogger(logger_name)
         managed_logger.handlers.clear()

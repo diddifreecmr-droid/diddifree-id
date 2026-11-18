@@ -64,10 +64,12 @@ Pour les interfaces de test, définir `CORS_ALLOWED_ORIGINS` dans la stack
 Portainer avec les origines exactes séparées par des virgules, par exemple
 `http://localhost:3000,http://localhost:5173`.
 
-En staging, le transport OTP peut être basculé sur Telegram avec
-`OTP_PROVIDER=telegram` et `TELEGRAM_BOT_TOKEN` dans Portainer. L'utilisateur
-doit d'abord ouvrir le bot et partager son propre contact; Auth lie alors son
-`telegram_chat_id` à son compte et envoie les codes suivants dans ce chat.
+**Le bot Telegram est désactivé** depuis le 2026-11-18 : son démarrage est
+commenté dans `identity_app/core/lifespan.py`, `OTP_PROVIDER=telegram` fait
+échouer le démarrage et `"channel": "telegram"` répond
+`502 OTP_PROVIDER_UNAVAILABLE`. Le token précédent a été écrit dans les logs par
+la ligne de requête httpx ; il doit être révoqué côté Telegram et un nouveau
+token émis avant toute réactivation.
 
 L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
 de Portainer. Un compte peut être créé et connecté avec `phone`, `email`, ou

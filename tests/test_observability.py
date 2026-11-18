@@ -168,3 +168,53 @@ async def test_domain_events_carry_w3c_trace_metadata_without_changing_payload(m
     payload = json.loads(fake_redis.fields["payload"])
     assert "traceparent" not in payload
     assert payload["event"] == "user.registered"
+
+
+def test_third_party_http_clients_do_not_log_request_lines():
+    """httpx's INFO request line carries the full URL, credentials included."""
+    from identity_app.core.logging import configure_logging
+
+    configure_logging("INFO", component="api")
+
+    assert logging.getLogger("httpx").level >= logging.WARNING
+    assert logging.getLogger("httpcore").level >= logging.WARNING
+
+
+def test_bot_token_embedded_in_url_is_redacted():
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        'HTTP Request: POST https://api.telegram.org/bot1234567890:AAEexampleSecret_-xyz/getUpdates "HTTP/1.1 200 OK"',
+        (),
+        None,
+    )
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    assert "AAEexampleSecret" not in payload["message"]
+    assert "1234567890" not in payload["message"]
+    assert "/bot***/getUpdates" in payload["message"]
+
+
+async def test_api_error_log_carries_contract_code(client, caplog):
+    """A 401 is only actionable when the log says which 401 it was."""
+    caplog.set_level(logging.WARNING, logger="identity_app.core.errors")
+
+    response = await client.post(
+        f"{API}/auth/service/token",
+        data={"client_id": "pilotage", "client_secret": "x", "audience": "diddifree-id", "scope": "users:read"},
+        headers={"X-Client-ID": "someone-else"},
+    )
+
+    assert response.status_code == 401
+    records = [record for record in caplog.records if record.name == "identity_app.core.errors"]
+    assert records
+    payload = json.loads(JsonFormatter().format(records[-1]))
+    assert payload["event"] == "api.error"
+    assert payload["level"] == "warn"
+    assert payload["attributes"]["error.code"] == "SERVICE_CLIENT_ID_INVALID"
+    assert payload["attributes"]["http.route"] == "/auth/service/token"
+    assert payload["attributes"]["http.response.status_code"] == 401
+    assert "x" not in payload["attributes"].values()

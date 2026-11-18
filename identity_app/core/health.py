@@ -66,7 +66,9 @@ def _check_otp_provider() -> dict[str, str]:
             and settings.evolution_api_key
             and settings.evolution_instance
         ),
-        "telegram": bool(settings.telegram_bot_token),
+        # The Telegram bot is commented out in core/lifespan.py; a token alone
+        # does not make the channel deliverable.
+        "telegram": False,
     }.get(provider, False)
     if provider == "sms":
         configured = settings.otp_sms_provider == "logging" or (

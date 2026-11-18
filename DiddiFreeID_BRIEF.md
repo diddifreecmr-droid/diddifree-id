@@ -70,6 +70,11 @@ historiques, puis publie `user.deleted` pour les modules métier.
 
 ## OTP Telegram staging
 
+> **Désactivé le 2026-11-18.** Le bot est commenté dans
+> `identity_app/core/lifespan.py` ; le token précédent a fuité dans les logs et
+> doit être révoqué avant réactivation. Le reste de cette section décrit le
+> fonctionnement lorsqu'il sera réactivé.
+
 Le transport peut être activé dans Portainer avec :
 
 ```text
