@@ -15,6 +15,7 @@ import json
 import re
 from uuid import UUID
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,15 +34,25 @@ class Settings(BaseSettings):
     # --- Observability -----------------------------------------------------
     # `diddifree-id` is intentionally not configurable: all services and
     # DiddiObserve use this canonical resource name to join signals.
+    otel_service_name: str = "diddifree-id"
     service_version: str = "0.1.0"
     service_instance_id: str = ""
-    diddi_deployment_id: str = ""
+    diddi_deployment_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("DEPLOYMENT_ID", "DIDDI_DEPLOYMENT_ID"),
+    )
     observability_component: str = "api"
     # Metrics are an operational endpoint, never a public API. An absent
     # token disables only scraping (503); it never prevents business traffic.
-    metrics_auth_token: str = ""
+    metrics_auth_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("METRICS_BEARER_TOKEN", "METRICS_AUTH_TOKEN"),
+    )
     # OTLP remains opt-in until DiddiObserve provides its collector endpoint.
     otel_enabled: bool = False
+    # The generic base is a DiddiObserve v1.2.1 input. A full trace endpoint,
+    # when supplied, remains authoritative for backwards compatibility.
+    otel_exporter_otlp_endpoint: str = ""
     otel_exporter_otlp_traces_endpoint: str = ""
     otel_exporter_otlp_headers: str = ""
     # Path to the trusted DiddiObserve CA certificate mounted by deployment.
@@ -143,6 +154,16 @@ class Settings(BaseSettings):
     def cors_allowed_origin_list(self) -> list[str]:
         """Return configured browser origins without empty entries."""
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    @property
+    def resolved_otel_traces_endpoint(self) -> str:
+        """Return one OTLP trace URL without adding ``/v1/traces`` twice."""
+
+        explicit = self.otel_exporter_otlp_traces_endpoint.strip()
+        if explicit:
+            return explicit
+        base = self.otel_exporter_otlp_endpoint.strip().rstrip("/")
+        return f"{base}/v1/traces" if base else ""
 
     @property
     def review_static_otp_codes(self) -> dict[str, str]:

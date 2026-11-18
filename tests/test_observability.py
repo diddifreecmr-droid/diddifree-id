@@ -70,12 +70,27 @@ def test_json_logs_include_resource_identity_and_redact_secrets():
     assert payload["level"] == "info"
     assert payload["resource"]["service.name"] == "diddifree-id"
     assert payload["resource"]["diddi.component"] == "api"
+    assert payload["resource"]["diddi.observability.version"] == "1.2.1"
     assert len(payload["resource"]) == 8
     assert "private-token" not in payload["message"]
     assert "not-for-logs" not in payload["message"]
     assert "482913" not in payload["message"]
     assert "someone@example.com" not in payload["message"]
     assert "+2250700000000" not in payload["message"]
+
+
+def test_standard_observability_environment_aliases(monkeypatch):
+    from identity_app.core.settings import Settings
+
+    monkeypatch.setenv("DEPLOYMENT_ID", "diddifree-id-staging")
+    monkeypatch.setenv("METRICS_BEARER_TOKEN", "dedicated-scrape-token")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://logs-otel.diddifree.com/otlp/diddifree-id/")
+
+    configured = Settings(_env_file=None)
+
+    assert configured.diddi_deployment_id == "diddifree-id-staging"
+    assert configured.metrics_auth_token == "dedicated-scrape-token"
+    assert configured.resolved_otel_traces_endpoint == "https://logs-otel.diddifree.com/otlp/diddifree-id/v1/traces"
 
 
 def test_plaintext_otp_log_switch_is_explicit_and_opt_in(monkeypatch):

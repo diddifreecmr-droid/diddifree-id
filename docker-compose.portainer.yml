@@ -9,17 +9,19 @@ services:
       APP_HOST_PORT: ${APP_HOST_PORT:-18010}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
+      OTEL_SERVICE_NAME: diddifree-id
       SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
       SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
-      DIDDI_DEPLOYMENT_ID: ${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}
-      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:-}
+      DIDDI_DEPLOYMENT_ID: ${DEPLOYMENT_ID:-${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}}
+      METRICS_AUTH_TOKEN: ${METRICS_BEARER_TOKEN:-${METRICS_AUTH_TOKEN:-}}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
       OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
       OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
-      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability.jsonl}
+      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability-api.jsonl}
       OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
       OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
       WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
@@ -93,6 +95,11 @@ services:
         exec uvicorn identity_app.main:app --host 0.0.0.0 --port 8000
     labels:
       com.diddifree.observability: "true"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   account-purger:
     build:
@@ -104,16 +111,20 @@ services:
       ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      OTEL_SERVICE_NAME: diddifree-id
       SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
       SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
-      DIDDI_DEPLOYMENT_ID: ${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}
+      DIDDI_DEPLOYMENT_ID: ${DEPLOYMENT_ID:-${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
       OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
       OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
-      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability.jsonl}
+      # A rotating handler must have a single writer. The API owns the api
+      # file; this periodic worker owns the worker file on the shared volume.
+      OBSERVABILITY_LOG_FILE: ${WORKER_OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability-worker.jsonl}
       OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
       OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
       WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
@@ -134,6 +145,11 @@ services:
       start_period: 90s
     labels:
       com.diddifree.observability: "true"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   db:
     image: postgres:16-alpine

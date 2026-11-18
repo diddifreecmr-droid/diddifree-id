@@ -10,6 +10,9 @@ from identity_app.core.settings import settings
 
 CANONICAL_SERVICE_NAME = "diddifree-id"
 OBSERVABILITY_SCHEMA_VERSION = "1.0.0"
+# This identifies the adopted platform contract. It is intentionally separate
+# from the immutable JSON log schema above.
+DIDDI_OBSERVABILITY_CONTRACT_VERSION = "1.2.1"
 _PROCESS_INSTANCE_ID = f"{os.getenv('HOSTNAME', 'process')}-{uuid4().hex}"
 
 
@@ -56,6 +59,10 @@ class ServiceIdentity:
 def service_identity(*, component: str | None = None) -> ServiceIdentity:
     """Return the canonical identity without exposing configuration secrets."""
 
+    configured_name = settings.otel_service_name.strip() or CANONICAL_SERVICE_NAME
+    if configured_name != CANONICAL_SERVICE_NAME:
+        raise ValueError("OTEL_SERVICE_NAME doit être diddifree-id.")
+
     return ServiceIdentity(
         service_namespace="diddi",
         service_name=CANONICAL_SERVICE_NAME,
@@ -70,5 +77,5 @@ def service_identity(*, component: str | None = None) -> ServiceIdentity:
         environment=settings.environment,
         deployment_id=settings.diddi_deployment_id or f"{CANONICAL_SERVICE_NAME}-{settings.environment}",
         component=component or settings.observability_component,
-        observability_version=OBSERVABILITY_SCHEMA_VERSION,
+        observability_version=DIDDI_OBSERVABILITY_CONTRACT_VERSION,
     )

@@ -73,7 +73,8 @@ def configure_tracing(app: FastAPI | None = None) -> bool:
     if not settings.otel_enabled:
         logger.info("tracing_disabled", extra={"event": "observability.tracing.disabled"})
         return False
-    if not settings.otel_exporter_otlp_traces_endpoint:
+    endpoint = settings.resolved_otel_traces_endpoint
+    if not endpoint:
         logger.warning(
             "tracing_endpoint_missing",
             extra={"event": "observability.tracing.endpoint_missing"},
@@ -92,7 +93,7 @@ def configure_tracing(app: FastAPI | None = None) -> bool:
             sampler=ParentBased(TraceIdRatioBased(settings.otel_trace_sample_ratio)),
         )
         exporter = _CountingSpanExporter(OTLPSpanExporter(
-            endpoint=settings.otel_exporter_otlp_traces_endpoint,
+            endpoint=endpoint,
             headers=_headers(),
             certificate_file=settings.otel_exporter_otlp_certificate or None,
             timeout=settings.otel_export_timeout_seconds,
