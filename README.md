@@ -122,13 +122,12 @@ le VPS utilise déjà ce port, il suffit d'override `APP_HOST_PORT` dans
 
 ### Observabilité
 
-La stack expose Prometheus sur `19090`, Grafana sur `13000` et Loki sur `13100` par défaut.
-Les ports sont configurables avec `PROMETHEUS_HOST_PORT` et
-`GRAFANA_HOST_PORT` et `LOKI_HOST_PORT`. Les logs Docker des conteneurs DiddiFreeID
-sont centralisés dans Loki via Grafana Alloy. Le dashboard DiddiFreeID est provisionné automatiquement;
-voir [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md). Le mot de passe Grafana
-doit rester une variable Portainer et les volumes `prometheus_data`,
-`grafana_data`, `loki_data`, `alloy_data` et `jwtkeys` doivent être conservés lors des redeploys.
+DiddiFreeID n'embarque pas Prometheus, Loki, Alloy ou Grafana. DiddiObserve est
+la plateforme externe responsable de leur exécution et de la collecte. Cette
+stack expose seulement `/metrics` avec un Bearer token, les traces OTLP et les
+fichiers JSONL applicatifs. Le volume `OBSERVABILITY_LOG_VOLUME_NAME` doit être
+conservé lors des redéploiements afin que DiddiObserve puisse le monter en
+lecture seule ; voir [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ## Tests
 
