@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from identity_app.core.database import ping_db
+from identity_app.core.logging import configure_logging, shutdown_otel_logging
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
 from identity_app.core.tracing import configure_tracing, shutdown_tracing
@@ -29,6 +30,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.redis = create_redis_pool(settings.redis_url)
 
     try:
+        # Reapply this after Uvicorn has loaded its logging configuration so
+        # uvicorn.error propagates once to the root OTLP handler.
+        configure_logging(settings.log_level, component="api")
         # Telemetry is best-effort. Its configuration must never gate startup.
         configure_tracing(app)
         # Validate before serving traffic. Review accounts must never silently
@@ -105,5 +109,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await app.state.redis.aclose()
-        shutdown_tracing()
         logger.info("lifespan shutdown complete", extra={"event": "app.shutdown.completed"})
+        shutdown_tracing()
+        shutdown_otel_logging()

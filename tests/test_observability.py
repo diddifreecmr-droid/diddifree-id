@@ -1,8 +1,13 @@
 """Basic request correlation guarantees for the observability baseline."""
 
+import copy
 import json
 import logging
+import logging.config
 from uuid import uuid4
+
+from opentelemetry.sdk._logs.export import LogRecordExporter, LogRecordExportResult
+from uvicorn.config import LOGGING_CONFIG
 
 from identity_app.core.logging import JsonFormatter
 from tests.conftest import API
@@ -70,7 +75,7 @@ def test_json_logs_include_resource_identity_and_redact_secrets():
     assert payload["level"] == "info"
     assert payload["resource"]["service.name"] == "diddifree-id"
     assert payload["resource"]["diddi.component"] == "api"
-    assert payload["resource"]["diddi.observability.version"] == "1.2.1"
+    assert payload["resource"]["diddi.observability.version"] == "2.0.0"
     assert len(payload["resource"]) == 8
     assert "private-token" not in payload["message"]
     assert "not-for-logs" not in payload["message"]
@@ -91,6 +96,130 @@ def test_standard_observability_environment_aliases(monkeypatch):
     assert configured.diddi_deployment_id == "diddifree-id-staging"
     assert configured.metrics_auth_token == "dedicated-scrape-token"
     assert configured.resolved_otel_traces_endpoint == "https://logs-otel.diddifree.com/otlp/diddifree-id/v1/traces"
+    assert configured.resolved_otel_logs_endpoint == "https://logs-otel.diddifree.com/otlp/diddifree-id/v1/logs"
+
+
+def test_uvicorn_error_reaches_one_real_otlp_handler_after_uvicorn_configuration(monkeypatch):
+    """Exercise Uvicorn's actual logging config, not a direct exporter call."""
+
+    from identity_app.core import logging as observability_logging
+    from identity_app.core.settings import settings
+
+    class InMemoryLogExporter(LogRecordExporter):
+        def __init__(self):
+            self.records = []
+
+        def export(self, batch):  # noqa: ANN001
+            self.records.extend(batch)
+            return LogRecordExportResult.SUCCESS
+
+        def shutdown(self):
+            return None
+
+        def force_flush(self, timeout_millis: int = 30_000):
+            return True
+
+    exporter = InMemoryLogExporter()
+    root = logging.getLogger()
+    original_root_handlers = list(root.handlers)
+    original_root_level = root.level
+    logger_names = ("uvicorn", "uvicorn.error", "uvicorn.access", "alembic")
+    original_loggers = {}
+    for name in logger_names:
+        managed = logging.getLogger(name)
+        original_loggers[name] = (list(managed.handlers), managed.propagate, managed.disabled)
+    monkeypatch.setattr(settings, "otel_enabled", True)
+    monkeypatch.setattr(settings, "otel_logs_enabled", True)
+    monkeypatch.setattr(settings, "otel_exporter_otlp_protocol", "http/protobuf")
+    monkeypatch.setattr(settings, "otel_exporter_otlp_logs_endpoint", "https://collector.invalid/v1/logs")
+    monkeypatch.setattr(settings, "observability_log_file", "")
+    monkeypatch.setattr(observability_logging, "OTLPLogExporter", lambda **_kwargs: exporter)
+
+    try:
+        logging.config.dictConfig(copy.deepcopy(LOGGING_CONFIG))
+        observability_logging.configure_logging("INFO", component="api")
+
+        uvicorn_error = logging.getLogger("uvicorn.error")
+        assert uvicorn_error.handlers == []
+        assert uvicorn_error.propagate is True
+        assert sum(getattr(handler, "_diddi_observability_otlp_log_handler", False) for handler in root.handlers) == 1
+
+        uvicorn_error.info("Uvicorn canary token=should-not-leak", extra={"event": "test.uvicorn.canary"})
+        observability_logging.shutdown_otel_logging()
+
+        canaries = [
+            record
+            for record in exporter.records
+            if record.log_record.attributes["diddi.log.event"] == "test.uvicorn.canary"
+        ]
+        assert len(canaries) == 1
+        assert "should-not-leak" not in canaries[0].log_record.body
+    finally:
+        observability_logging.shutdown_otel_logging()
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            if handler not in original_root_handlers:
+                handler.close()
+        for handler in original_root_handlers:
+            root.addHandler(handler)
+        root.setLevel(original_root_level)
+        for name, (handlers, propagate, disabled) in original_loggers.items():
+            managed = logging.getLogger(name)
+            managed.handlers = handlers
+            managed.propagate = propagate
+            managed.disabled = disabled
+
+
+def test_account_purger_logs_use_the_worker_otlp_resource(monkeypatch):
+    """The periodic process gets its own OTLP resource, not the API one."""
+
+    from identity_app.core import logging as observability_logging
+    from identity_app.core.settings import settings
+
+    class InMemoryLogExporter(LogRecordExporter):
+        def __init__(self):
+            self.records = []
+
+        def export(self, batch):  # noqa: ANN001
+            self.records.extend(batch)
+            return LogRecordExportResult.SUCCESS
+
+        def shutdown(self):
+            return None
+
+        def force_flush(self, timeout_millis: int = 30_000):
+            return True
+
+    exporter = InMemoryLogExporter()
+    root = logging.getLogger()
+    original_handlers, original_level = list(root.handlers), root.level
+    monkeypatch.setattr(settings, "otel_enabled", True)
+    monkeypatch.setattr(settings, "otel_logs_enabled", True)
+    monkeypatch.setattr(settings, "otel_exporter_otlp_protocol", "http/protobuf")
+    monkeypatch.setattr(settings, "otel_exporter_otlp_logs_endpoint", "https://collector.invalid/v1/logs")
+    monkeypatch.setattr(settings, "observability_log_file", "")
+    monkeypatch.setattr(observability_logging, "OTLPLogExporter", lambda **_kwargs: exporter)
+
+    try:
+        observability_logging.configure_logging("INFO", component="account-purger")
+        logging.getLogger("account_purger").info("Worker canary", extra={"event": "test.worker.canary"})
+        observability_logging.shutdown_otel_logging()
+
+        canary = next(
+            record
+            for record in exporter.records
+            if record.log_record.attributes["diddi.log.event"] == "test.worker.canary"
+        )
+        assert canary.resource.attributes["diddi.component"] == "account-purger"
+    finally:
+        observability_logging.shutdown_otel_logging()
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            if handler not in original_handlers:
+                handler.close()
+        for handler in original_handlers:
+            root.addHandler(handler)
+        root.setLevel(original_level)
 
 
 def test_plaintext_otp_log_switch_is_explicit_and_opt_in(monkeypatch):

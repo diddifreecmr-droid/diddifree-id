@@ -12,7 +12,7 @@ CANONICAL_SERVICE_NAME = "diddifree-id"
 OBSERVABILITY_SCHEMA_VERSION = "1.0.0"
 # This identifies the adopted platform contract. It is intentionally separate
 # from the immutable JSON log schema above.
-DIDDI_OBSERVABILITY_CONTRACT_VERSION = "1.2.1"
+DIDDI_OBSERVABILITY_CONTRACT_VERSION = "2.0.0"
 _PROCESS_INSTANCE_ID = f"{os.getenv('HOSTNAME', 'process')}-{uuid4().hex}"
 
 

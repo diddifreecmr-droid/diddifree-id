@@ -50,10 +50,15 @@ class Settings(BaseSettings):
     )
     # OTLP remains opt-in until DiddiObserve provides its collector endpoint.
     otel_enabled: bool = False
+    otel_exporter_otlp_protocol: str = "http/protobuf"
+    # Logs and traces are independently enabled so a rollout can validate one
+    # signal without silently changing the other.
+    otel_logs_enabled: bool = False
     # The generic base is a DiddiObserve v1.2.1 input. A full trace endpoint,
     # when supplied, remains authoritative for backwards compatibility.
     otel_exporter_otlp_endpoint: str = ""
     otel_exporter_otlp_traces_endpoint: str = ""
+    otel_exporter_otlp_logs_endpoint: str = ""
     otel_exporter_otlp_headers: str = ""
     # Path to the trusted DiddiObserve CA certificate mounted by deployment.
     # An empty value uses the image's system trust store; TLS is never disabled.
@@ -164,6 +169,16 @@ class Settings(BaseSettings):
             return explicit
         base = self.otel_exporter_otlp_endpoint.strip().rstrip("/")
         return f"{base}/v1/traces" if base else ""
+
+    @property
+    def resolved_otel_logs_endpoint(self) -> str:
+        """Return one OTLP logs URL without adding ``/v1/logs`` twice."""
+
+        explicit = self.otel_exporter_otlp_logs_endpoint.strip()
+        if explicit:
+            return explicit
+        base = self.otel_exporter_otlp_endpoint.strip().rstrip("/")
+        return f"{base}/v1/logs" if base else ""
 
     @property
     def review_static_otp_codes(self) -> dict[str, str]:
