@@ -16,5 +16,5 @@ def test_diddiadmin_diddisupport_client_policy_is_minimal():
 
 
 def test_diddiadmin_diddisupport_client_is_environment_scoped():
-    assert client_id_for("staging") == "diddiadmin-staging-diddisupport"
-    assert client_id_for("production") == "diddiadmin-production-diddisupport"
+    assert client_id_for("staging") == "backoffice-staging-diddisupport"
+    assert client_id_for("production") == "backoffice-production-diddisupport"

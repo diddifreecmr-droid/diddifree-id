@@ -113,7 +113,7 @@ For DiddiAdmin calls to DiddiSupport:
 python scripts/provision_diddiadmin_diddisupport_client.py --environment staging
 ```
 
-This provisions `diddiadmin-staging-diddisupport` with
+This provisions `backoffice-staging-diddisupport` with
 `service=diddiadmin`, `audience=diddi-support`, and the deliberately minimal
 scopes `diddi-support:read` and `diddi-support:write`. The resulting JWT has
 `sub=service:diddiadmin`.

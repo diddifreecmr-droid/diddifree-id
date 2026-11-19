@@ -31,7 +31,9 @@ SCOPES = (
 
 
 def client_id_for(environment: str) -> str:
-    return f"diddiadmin-{environment}-diddisupport"
+    # The client ID keeps the Backoffice naming convention, while the JWT
+    # service identity remains `diddiadmin` for the receiving service.
+    return f"backoffice-{environment}-diddisupport"
 
 
 async def provision_client(*, environment: str) -> dict[str, str]:
