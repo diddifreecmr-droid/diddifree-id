@@ -25,6 +25,36 @@ async def test_register_rejects_malformed_phone(client):
     assert r.json()["error"]["code"] == "INVALID_PHONE_FORMAT"
 
 
+async def test_email_only_registration_and_login(client, otp_code, monkeypatch):
+    from identity_app.core.settings import settings
+
+    monkeypatch.setattr(settings, "otp_provider", "logging")
+    email = "email-only@example.com"
+    r = await client.post(
+        f"{API}/auth/register",
+        json={"email": email, "full_name": "Email Only"},
+    )
+
+    assert r.status_code == 201, r.text
+    assert r.json()["phone"] is None
+
+    r = await client.post(
+        f"{API}/auth/otp/request",
+        json={"email": email},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["channel"] == "logging"
+
+    r = await client.post(
+        f"{API}/auth/otp/verify",
+        json={"email": email, "code": otp_code.latest()},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["email"] == email
+    assert r.json()["user"]["phone"] is None
+
+
 async def test_register_rejects_duplicate_phone(client, phone_factory):
     phone = phone_factory()
     await client.post(f"{API}/auth/register", json={"phone": phone})
@@ -110,7 +140,43 @@ async def test_otp_request_does_not_reveal_unknown_numbers(client, phone_factory
     r = await client.post(f"{API}/auth/otp/request", json={"phone": unknown})
 
     assert r.status_code == 200
-    assert set(r.json()) == {"expires_in_seconds", "retry_after_seconds"}
+    assert set(r.json()) == {"expires_in_seconds", "retry_after_seconds", "channel"}
+
+
+async def test_whatsapp_number_not_found_has_specific_code(client, phone_factory):
+    from identity_app.core import deps
+    from identity_app.main import app
+    from identity_app.modules.identity.domain.interfaces import WhatsAppNumberNotFound
+
+    class MissingWhatsAppSender:
+        async def send(self, phone, code, channel=None, email=None):  # noqa: ANN001
+            raise WhatsAppNumberNotFound("Le numéro n'existe pas sur WhatsApp.")
+
+    phone = phone_factory()
+    r = await client.post(f"{API}/auth/register", json={"phone": phone, "full_name": "No WhatsApp"})
+    assert r.status_code == 201, r.text
+
+    app.dependency_overrides[deps.otp_sender] = lambda: MissingWhatsAppSender()
+    try:
+        r = await client.post(f"{API}/auth/otp/request", json={"phone": phone, "channel": "whatsapp"})
+    finally:
+        app.dependency_overrides.pop(deps.otp_sender, None)
+
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "WHATSAPP_NUMBER_NOT_FOUND"
+
+
+async def test_email_channel_requires_profile_email(client, phone_factory):
+    phone = phone_factory()
+    await client.post(f"{API}/auth/register", json={"phone": phone})
+
+    r = await client.post(
+        f"{API}/auth/otp/request",
+        json={"phone": phone, "channel": "email"},
+    )
+
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "EMAIL_NOT_CONFIGURED"
 
 
 async def test_refresh_rotates_the_token(client, user_session):

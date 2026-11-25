@@ -14,24 +14,42 @@ Every class here changes state. The contract each one honours (architecture §2)
 No command ever calls a query, and no query ever calls a command.
 """
 
+from identity_app.modules.identity.application.commands.capabilities import (
+    RequestCapability,
+    UpdateCapabilityAccess,
+    UpdateCapabilityProjection,
+)
+from identity_app.modules.identity.application.commands.change_review_account import ChangeReviewAccount
 from identity_app.modules.identity.application.commands.change_role import ChangeRole
 from identity_app.modules.identity.application.commands.change_status import ChangeStatus
 from identity_app.modules.identity.application.commands.decide_kyc import DecideKyc
+from identity_app.modules.identity.application.commands.issue_service_token import IssueServiceToken
 from identity_app.modules.identity.application.commands.logout import Logout
 from identity_app.modules.identity.application.commands.refresh_token import RefreshAccessToken
 from identity_app.modules.identity.application.commands.register_user import RegisterUser
+from identity_app.modules.identity.application.commands.request_account_deletion import RequestAccountDeletion
+from identity_app.modules.identity.application.commands.request_contact_link_otp import RequestContactLinkOtp
 from identity_app.modules.identity.application.commands.request_otp import RequestOtp
 from identity_app.modules.identity.application.commands.update_profile import UpdateProfile
+from identity_app.modules.identity.application.commands.verify_contact_link_otp import VerifyContactLinkOtp
 from identity_app.modules.identity.application.commands.verify_otp import VerifyOtp
 
 __all__ = [
     "ChangeRole",
+    "ChangeReviewAccount",
+    "RequestCapability",
+    "UpdateCapabilityAccess",
+    "UpdateCapabilityProjection",
     "ChangeStatus",
+    "RequestAccountDeletion",
     "DecideKyc",
+    "IssueServiceToken",
     "Logout",
     "RefreshAccessToken",
     "RegisterUser",
+    "RequestContactLinkOtp",
     "RequestOtp",
     "UpdateProfile",
+    "VerifyContactLinkOtp",
     "VerifyOtp",
 ]

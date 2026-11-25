@@ -1,0 +1,138 @@
+"""Readiness checks for the process and its critical dependencies."""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from pathlib import Path
+from typing import Any
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from fastapi import FastAPI
+from sqlalchemy import text
+
+from identity_app.core.database import engine
+from identity_app.core.metrics import observe_dependency_health, observe_dependency_request
+from identity_app.core.settings import settings
+from identity_app.core.worker_health import worker_health_report
+
+
+def _migration_heads() -> set[str]:
+    root = Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    return set(ScriptDirectory.from_config(config).get_heads())
+
+
+async def _check_database() -> dict[str, str]:
+    async with engine.connect() as connection:
+        await connection.execute(text("SELECT 1"))
+        result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+        current_revisions = {row[0] for row in result}
+
+    migrations_ok = current_revisions == _migration_heads()
+    return {
+        "status": "ok" if migrations_ok else "error",
+        "migrations": "ok" if migrations_ok else "error",
+    }
+
+
+async def _check_redis(app: FastAPI) -> dict[str, str]:
+    redis = getattr(app.state, "redis", None)
+    if redis is None:
+        return {"status": "error"}
+    await redis.ping()
+    return {"status": "ok"}
+
+
+def _check_jwt_keys(app: FastAPI) -> dict[str, str]:
+    try:
+        tokens = getattr(app.state, "tokens", None)
+        configured = bool(tokens and tokens.published_kids)
+    except Exception:
+        configured = False
+    return {"status": "ok" if configured else "error"}
+
+
+def _check_otp_provider() -> dict[str, str]:
+    provider = settings.otp_provider.lower()
+    configured = {
+        "logging": True,
+        "email": bool(settings.smtp_host and settings.smtp_username and settings.smtp_password),
+        "smtp": bool(settings.smtp_host and settings.smtp_username and settings.smtp_password),
+        "whatsapp": bool(
+            settings.evolution_api_url
+            and settings.evolution_api_key
+            and settings.evolution_instance
+        ),
+        # The Telegram bot is commented out in core/lifespan.py; a token alone
+        # does not make the channel deliverable.
+        "telegram": False,
+    }.get(provider, False)
+    if provider == "sms":
+        configured = settings.otp_sms_provider == "logging" or (
+            settings.otp_sms_provider == "yellika"
+            and bool(settings.yellika_sms_token and settings.yellika_sms_sender_id)
+        ) or (
+            settings.otp_sms_provider == "senndo"
+            and bool(settings.senndo_sms_api_key)
+        )
+    return {"status": "ok" if configured else "error"}
+
+
+async def _run_check(name: str, check) -> tuple[str, dict[str, str]]:
+    started_at = time.perf_counter()
+    try:
+        result = await asyncio.wait_for(check(), timeout=settings.health_check_timeout_seconds)
+        healthy = result.get("status") == "ok"
+        observe_dependency_health(dependency=name, healthy=healthy)
+        observe_dependency_request(
+            dependency=name,
+            operation="readiness",
+            outcome="success" if healthy else "error",
+            duration_seconds=time.perf_counter() - started_at,
+        )
+        return name, result
+    except Exception:
+        observe_dependency_health(dependency=name, healthy=False)
+        observe_dependency_request(
+            dependency=name,
+            operation="readiness",
+            outcome="error",
+            duration_seconds=time.perf_counter() - started_at,
+        )
+        return name, {"status": "error"}
+
+
+async def readiness_report(app: FastAPI) -> tuple[bool, dict[str, Any]]:
+    """Run dependency checks concurrently and return a safe operations report."""
+
+    checks = dict(
+        await asyncio.gather(
+            _run_check("database", _check_database),
+            _run_check("redis", lambda: _check_redis(app)),
+        ),
+    )
+    checks["jwt_keys"] = _check_jwt_keys(app)
+    observe_dependency_health(dependency="jwt_keys", healthy=checks["jwt_keys"]["status"] == "ok")
+    checks["otp_provider"] = _check_otp_provider()
+    observe_dependency_health(dependency="otp_provider", healthy=checks["otp_provider"]["status"] == "ok")
+    ready = all(check["status"] == "ok" for check in checks.values())
+    return ready, checks
+
+
+async def workers_report(app: FastAPI) -> tuple[bool, dict[str, Any]]:
+    """Report periodic workers without coupling API readiness to them."""
+
+    redis = getattr(app.state, "redis", None)
+    if redis is None:
+        return False, {"account-purger": {"status": "error", "worker": "account-purger"}}
+    try:
+        report = await asyncio.wait_for(
+            worker_health_report(redis, worker="account-purger"),
+            timeout=settings.health_check_timeout_seconds,
+        )
+    except Exception:
+        report = {"status": "error", "worker": "account-purger"}
+    return report["status"] == "ok", {"account-purger": report}

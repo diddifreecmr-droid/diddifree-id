@@ -8,13 +8,14 @@ so it never flushes, never commits, and holds no transaction open.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from identity_app.modules.identity.domain.entities import User, UserRole, UserStatus
+from identity_app.modules.identity.domain.capabilities import Capability
+from identity_app.modules.identity.domain.entities import User, UserLanguage, UserRole, UserStatus
 from identity_app.modules.identity.infra import models as orm
 
 # Ceiling on `page_size` so a single admin request cannot ask for the whole
@@ -26,13 +27,23 @@ def _to_domain(row: orm.UserModel) -> User:
     return User(
         id=row.id,
         phone=row.phone,
+        email=row.email,
         full_name=row.full_name,
+        language=UserLanguage(row.language),
+        photo_url=row.photo_url,
         password_hash=row.password_hash,
         role=UserRole(row.role),
         status=UserStatus(row.status),
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
+        is_review_account=row.is_review_account,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        deletion_requested_at=row.deletion_requested_at,
+        deletion_scheduled_for=row.deletion_scheduled_for,
+        deletion_previous_status=(
+            UserStatus(row.deletion_previous_status) if row.deletion_previous_status else None
+        ),
+        deleted_at=row.deleted_at,
     )
 
 
@@ -102,3 +113,91 @@ class SqlAlchemyUserReadRepository:
             .limit(page_size),
         )
         return [_to_domain(row) for row in result.scalars()], int(total or 0)
+
+    async def identity_summary(
+        self,
+        *,
+        day_start: datetime,
+        day_end: datetime,
+        activity_day: date,
+        activity_month_start: date,
+        activity_month_end: date,
+    ) -> dict[str, int]:
+        """Return aggregate identity metrics without exposing user records."""
+
+        total = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
+        )
+        registered = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.created_at >= day_start,
+                orm.UserModel.created_at < day_end,
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
+        )
+        verified = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status != UserStatus.PENDING_VERIFICATION.value,
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
+        )
+        active = await self._session.scalar(
+            select(func.count()).select_from(orm.UserModel).where(
+                orm.UserModel.status == UserStatus.ACTIVE.value,
+            ),
+        )
+        daily_active = await self._session.scalar(
+            select(func.count()).select_from(orm.UserActivityDailyModel).where(
+                orm.UserActivityDailyModel.activity_date == activity_day,
+                orm.UserActivityDailyModel.user_id == orm.UserModel.id,
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
+        )
+        monthly_active = await self._session.scalar(
+            select(func.count(func.distinct(orm.UserActivityDailyModel.user_id))).where(
+                orm.UserActivityDailyModel.activity_date >= activity_month_start,
+                orm.UserActivityDailyModel.activity_date <= activity_month_end,
+                orm.UserActivityDailyModel.user_id == orm.UserModel.id,
+                orm.UserModel.status != UserStatus.DELETED.value,
+            ),
+        )
+        return {
+            "users_total": int(total or 0),
+            "users_registered": int(registered or 0),
+            "users_verified": int(verified or 0),
+            "users_active": int(active or 0),
+            "daily_active_users": int(daily_active or 0),
+            "monthly_active_users": int(monthly_active or 0),
+        }
+
+
+def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
+    return Capability(
+        user_id=row.user_id,
+        service=row.service,
+        capability_type=row.capability_type,
+        access_status=row.access_status,
+        operational_status=row.operational_status,
+        status_source=row.status_source,
+        actions=tuple(row.actions or ()),
+        projection_version=row.projection_version,
+        last_event_id=row.last_event_id,
+        updated_at=row.updated_at,
+        created_at=row.created_at,
+    )
+
+
+class SqlAlchemyCapabilityReadRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_for_user(self, user_id: UUID) -> list[Capability]:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel)
+            .where(orm.UserCapabilityModel.user_id == user_id)
+            .order_by(orm.UserCapabilityModel.service, orm.UserCapabilityModel.capability_type)
+            .execution_options(populate_existing=True),
+        )
+        return [_capability_to_domain(row) for row in result.scalars()]

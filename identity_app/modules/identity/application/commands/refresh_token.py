@@ -13,6 +13,7 @@ from identity_app.modules.identity.domain.entities import (
 )
 from identity_app.modules.identity.domain.interfaces import (
     RefreshTokenRepository,
+    UserActivityRepository,
     UserWriteRepository,
 )
 from identity_app.modules.identity.infra.token_service import TokenService, hash_refresh_token
@@ -25,6 +26,7 @@ class RefreshAccessToken:
     refresh_tokens: RefreshTokenRepository
     users: UserWriteRepository
     tokens: TokenService
+    activity: UserActivityRepository | None = None
 
     async def __call__(self, *, refresh_token: str, device_info: str | None = None) -> dict:
         now = datetime.now(UTC)
@@ -59,6 +61,14 @@ class RefreshAccessToken:
         user = await self.users.find_by_id(stored.user_id)
         if user is None:
             raise ApiError(401, "REFRESH_TOKEN_INVALID", "Le refresh token est invalide.")
+        if user.status.value == "deleted":
+            raise ApiError(410, "ACCOUNT_DELETED", "Ce compte a été définitivement supprimé.")
+        if user.status.value == "deletion_pending":
+            raise ApiError(
+                403,
+                "ACCOUNT_DELETION_PENDING",
+                "La suppression de ce compte est en attente. Vérifiez un OTP pour le restaurer.",
+            )
         if user.status not in SESSION_ALLOWED_STATUSES:
             # This is the point where suspension actually bites: the access
             # token stays valid for at most 15 minutes, but no new one is ever
@@ -80,11 +90,16 @@ class RefreshAccessToken:
                 created_at=now,
             ),
         )
+        if self.activity is not None:
+            await self.activity.record(user.id, at=now)
         await self.refresh_tokens.commit()
 
         return {
             "access_token": self.tokens.issue_access_token(
-                user_id=user.id, role=user.role.value, status=user.status.value,
+                user_id=user.id,
+                role=user.role.value,
+                status=user.status.value,
+                is_review_account=user.is_review_account,
             ),
             "refresh_token": raw_refresh,
         }

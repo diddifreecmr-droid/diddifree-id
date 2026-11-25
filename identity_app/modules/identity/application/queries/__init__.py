@@ -14,7 +14,10 @@ changes — which is the entire point of keeping this boundary honest while it i
 still cheap to maintain.
 """
 
+from identity_app.modules.identity.application.queries.get_capabilities import GetMyCapabilities
+from identity_app.modules.identity.application.queries.get_identity_summary import GetIdentitySummary
 from identity_app.modules.identity.application.queries.get_jwks import GetJwks
+from identity_app.modules.identity.application.queries.get_support_context import GetSupportUserContext
 from identity_app.modules.identity.application.queries.get_user import (
     GetCurrentUserProfile,
     GetUserById,
@@ -24,7 +27,10 @@ from identity_app.modules.identity.application.queries.list_users import ListUse
 
 __all__ = [
     "GetCurrentUserProfile",
+    "GetMyCapabilities",
+    "GetSupportUserContext",
     "GetJwks",
+    "GetIdentitySummary",
     "GetUserById",
     "GetUserByPhone",
     "ListUsers",

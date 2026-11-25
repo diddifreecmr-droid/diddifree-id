@@ -3,9 +3,16 @@
 **Stack retenue :** Python / FastAPI · PostgreSQL · Redis · JWT (RS256)
 **Périmètre :** service d'identité central de l'écosystème DiddiFree — remplace à terme les modules
 `auth` internes construits par les équipes produit (DiddiGo notamment).
-**Version : 1.0** — 2026-07-29
+**Version : 1.2** — 2026-10-15
 **Statut :** Implémenté. Le code de ce dépôt suit ce document ; les écarts assumés sont listés dans le
 `README.md`.
+**Mise à jour 2026-09-21 :** ajout de la projection des capacités DiddiFree Pro et de ses métriques
+d'observabilité. Cette projection ne transforme pas les rôles métier en rôles JWT.
+**Mise à jour 2026-10-15 :** ajout de la liaison OTP vérifiée des contacts, de la contrainte email
+unique insensible à la casse et du routage OTP vers plusieurs adapters (`email`, `sms`, `telegram`,
+`whatsapp`).
+**Mise à jour 2026-10-15 :** ajout de la suppression de compte au MVP : période de grâce de 30 jours,
+restauration par OTP, tombstone UUID et anonymisation finale idempotente.
 **Historique :**
 - *Design* — document de conception, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. Les décisions prises pendant l'implémentation, et les
@@ -16,6 +23,11 @@
 **Document miroir :** `DiddiFreeID_Contrat_API.md` (destiné aux équipes consommatrices : Wallet, Fund, Ride, etc.)
 
 ---
+
+> **Mise à jour d'architecture (2026-08-04)** : l'authentification et le
+> profil sont centraux, mais les rôles métier restent dans les modules qui les
+> définissent. Auth ne crée plus de rôle `driver` ou `merchant` ; ces anciennes
+> valeurs restent lisibles uniquement pour permettre une migration progressive.
 
 ## 0. Rôle dans l'écosystème
 
@@ -132,12 +144,13 @@ identity_app/
 │       │
 │       ├── application/
 │       │   ├── commands/          # RegisterUser, RequestOtp, VerifyOtp, RefreshAccessToken, Logout,
-│       │   │                      # UpdateProfile, ChangeRole, DecideKyc, ChangeStatus
+│       │   │                      # RequestContactLinkOtp, VerifyContactLinkOtp, UpdateProfile,
+│       │   │                      # ChangeRole, DecideKyc, ChangeStatus
 │       │   ├── queries/           # GetUserById, GetUserByPhone, GetCurrentUserProfile, ListUsers, GetJwks
 │       │   ├── payloads.py        # forme publiée d'un utilisateur — partagée, appartenant à aucun des deux côtés
 │       │   └── validation.py      # règles d'entrée communes (format E.164)
 │       │
-│       ├── domain/                # entités : User, OtpCode, RefreshToken, historiques — aucune dépendance technique
+│       ├── domain/                # User, OtpCode, ContactLinkChallenge, RefreshToken, historiques
 │       │   └── events/            # définitions des événements de domaine
 │       │
 │       └── infra/
@@ -145,9 +158,16 @@ identity_app/
 │           ├── write_repository.py    # écritures normalisées (PostgreSQL, transactionnel)
 │           ├── read_repository.py     # lectures — mêmes tables au départ, requêtes optimisées séparément
 │           ├── cache.py               # Redis : profils fréquemment lus
-│           ├── rate_limiter.py        # Redis : compteurs OTP par téléphone et par IP
+│           ├── rate_limiter.py        # Redis : compteurs OTP par identifiant et par IP
 │           ├── token_service.py       # signature/vérification RS256, gestion JWKS, refresh opaques
-│           └── sms_adapter.py         # envoi OTP (agrégateur SMS)
+│           ├── otp_router.py           # sélection du provider par canal
+│           ├── otp_delivery.py         # contrat provider-neutral de livraison
+│           ├── smtp_adapter.py         # OTP email
+│           ├── sms_adapter.py           # logging/fallback SMS
+│           ├── yellika.py              # adapter SMS Yellika
+│           ├── senndo.py               # adapter SMS Senndo
+│           ├── telegram.py             # adapter Telegram
+│           └── whatsapp.py             # adapter Evolution API
 │
 └── main.py
 ```
@@ -191,13 +211,38 @@ Le JWKS n'est pas mis en cache dans Redis : il est servi depuis le trousseau cha
 démarrage. L'endpoint continue donc de répondre pendant un incident PostgreSQL **ou** Redis — ce qui est
 exactement le moment où l'on tient à ce que la vérification des tokens ne bouge pas.
 
+### Projection des capacités DiddiFree Pro
+
+La table `identity.user_capabilities` fournit à DiddiFree Pro une vue globale des métiers accessibles à
+un utilisateur. Elle ne remplace pas les profils métier : chaque module reste propriétaire de son
+qualification opérationnelle.
+
+- `access_status` est administré par DiddiFreeID : `requested`, `enabled`, `suspended` ou `revoked`.
+- `operational_status` est publié par le module propriétaire : par exemple `profile_missing`,
+  `pending_verification` ou `ready`.
+- `status_source` identifie le module qui fait foi pour l'état opérationnel.
+- `projection_version` et `last_event_id` rendent les mises à jour idempotentes et détectent les conflits.
+- `freshness=stale` dans `/pro/me` signale une projection trop ancienne ; ce champ ne constitue pas une
+  autorisation métier.
+
+Les routes sont séparées par responsabilité : `/pro/me` et la demande utilisateur sont exposées au
+compte courant, la mise à jour opérationnelle est réservée au service propriétaire via JWT S2S, et la
+modification de `access_status` est réservée à l'administration. Aucun de ces états n'est ajouté au JWT
+utilisateur central.
+
+La métrique Prometheus `diddifree_capability_events_total` suit les demandes, projections et décisions
+d'accès par résultat et service. `diddifree_capability_stale_reads_total` compte les lectures périmées.
+Les labels restent limités à l'opération, au résultat et au service afin de ne pas exposer de
+`user_id` en haute cardinalité.
+
 ---
 
 ## 4. Schéma de données
 
 **Implémentation :** ajout de `users.requested_role`, de la table `identity.user_role_history`, du statut
-`pending_kyc` et de l'index `idx_refresh_token_hash`. Le SQL ci-dessous est celui produit par les
-migrations Alembic `a1b2c3d4e5f6` et `b2c3d4e5f6a7`.
+`pending_kyc`, de l'index `idx_refresh_token_hash`, des comptes email-only et des challenges de liaison
+de contact. Le SQL ci-dessous résume le schéma produit par les migrations Alembic, jusqu'à
+`k1l2m3n4o5p6`.
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS identity;
@@ -205,22 +250,30 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE identity.users (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    phone           VARCHAR(20) NOT NULL UNIQUE,
+    phone           VARCHAR(20) UNIQUE,                -- NULL pour un compte email-only
+    email           VARCHAR(320),                      -- NULL pour un compte phone-only
     full_name       VARCHAR(120),
     password_hash   TEXT,                          -- NULL si l'utilisateur n'utilise que l'OTP
     role            VARCHAR(20) NOT NULL DEFAULT 'user',   -- user | driver | merchant | admin (extensible par module)
     status          VARCHAR(20) NOT NULL DEFAULT 'pending_verification',
-                                                   -- pending_verification | pending_kyc | active | suspended
+                                                   -- pending_verification | pending_kyc | active | suspended | deletion_pending | deleted
     requested_role  VARCHAR(20),                   -- rôle demandé, en attente de décision KYC ; NULL = rien en cours
+    deletion_requested_at  TIMESTAMPTZ,
+    deletion_scheduled_for TIMESTAMPTZ,
+    deletion_previous_status VARCHAR(30),
+    deleted_at       TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_users_phone ON identity.users(phone);
+CREATE UNIQUE INDEX idx_users_email ON identity.users(lower(email))
+    WHERE email IS NOT NULL;
 CREATE INDEX idx_users_role ON identity.users(role);   -- pour les queries admin type ListUsers filtré par rôle
 
 CREATE TABLE identity.otp_codes (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    phone       VARCHAR(20) NOT NULL,
+    phone       VARCHAR(20),
+    email       VARCHAR(320),
     code_hash   TEXT NOT NULL,
     expires_at  TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -228,6 +281,22 @@ CREATE TABLE identity.otp_codes (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_otp_phone ON identity.otp_codes(phone);
+CREATE INDEX idx_otp_email ON identity.otp_codes(email);
+
+CREATE TABLE identity.contact_link_challenges (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id      UUID NOT NULL REFERENCES identity.users(id) ON DELETE CASCADE,
+    contact_type VARCHAR(10) NOT NULL,                  -- phone | email
+    target       VARCHAR(320) NOT NULL,
+    code_hash    TEXT NOT NULL,
+    expires_at   TIMESTAMPTZ NOT NULL,
+    consumed_at  TIMESTAMPTZ,
+    attempts     SMALLINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_contact_link_user ON identity.contact_link_challenges(user_id);
+CREATE INDEX idx_contact_link_target
+    ON identity.contact_link_challenges(contact_type, target);
 
 CREATE TABLE identity.refresh_tokens (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -270,6 +339,11 @@ CREATE TABLE identity.user_role_history (
 CREATE INDEX idx_role_history_user ON identity.user_role_history(user_id);
 ```
 
+La projection capabilities est créée par la migration Alembic
+`2026_09_21-h8i9j0k1l2m3_capabilities.py`. Sa contrainte unique sur
+`(user_id, service, capability_type)` empêche les doublons ; les versions d'événements anciennes sont
+ignorées et une même version avec un autre événement est rejetée en conflit.
+
 **Pourquoi `role` reste une simple colonne texte et non une table de permissions complexe** : à ce stade,
 chaque module gère ses propres autorisations fines en interne (ex. DiddiFund décide qui peut créer une
 campagne). DiddiFreeID ne fait que dire *qui est l'utilisateur* et *son rôle global* — pas *ce qu'il a le
@@ -286,7 +360,18 @@ pending_verification ──(OTP vérifié)────────────�
 
 active ◄──────────────(réactivation admin)──────────────► suspended
 pending_kyc ──────────(suspension admin)────────────────► suspended
+
+active/pending_kyc ──(DELETE /users/me)──────────────────► deletion_pending
+deletion_pending ───(OTP dans les 30 jours)─────────────► active ou pending_kyc
+deletion_pending ───(purge après échéance)──────────────► deleted
 ```
+
+`deletion_pending` ne reçoit pas de nouvelle session. Une vérification OTP
+réussie pendant la période de grâce annule la demande et restaure le statut
+précédent. `deleted` est un tombstone : les identifiants directs sont
+anonymisés, mais l'UUID et l'audit restent pour préserver les références
+inter-modules. Le job `scripts/purge_deleted_accounts.py` est lancé par le
+service `account-purger` du compose Portainer.
 
 Deux transitions sont **volontairement absentes** :
 
@@ -386,6 +471,9 @@ DiddiFreeID publie sur le bus interne (`shared_kernel/events`) :
 | `user.updated` | Changement de `full_name`, demande ou refus de rôle KYC, réactivation d'un compte | Tous les modules qui mettent en cache des données de profil |
 | `user.role_changed` | Rôle effectivement accordé (ex. `user` → `driver` après décision KYC favorable) | Ride, Skill |
 | `user.suspended` | Admin suspend un compte | Wallet (gel des transactions), Ride (désactivation chauffeur), etc. |
+| `user.deletion_requested` | L'utilisateur démarre la période de grâce de 30 jours | Tous les modules qui doivent masquer ou suspendre leurs profils métier |
+| `user.deletion_cancelled` | L'utilisateur restaure son compte par OTP | Tous les modules qui peuvent réactiver leur projection métier |
+| `user.deleted` | La purge finale anonymise le tombstone | Tous les modules, pour supprimer/anonymiser leurs propres données |
 
 Ce point est important pour Wallet en particulier : plutôt que Wallet interroge DiddiFreeID à chaque
 inscription pour savoir "est-ce que ce user existe", il **écoute** `user.registered` et crée
@@ -512,6 +600,15 @@ Les cinq étapes suggérées en v1 sont réalisées :
 4. ✅ Script de migration DiddiGo — à lancer tôt, pendant que leur base de test est encore petite.
 5. ✅ Port `IdentityVerifierPort` défini côté `shared_kernel`, avec son implémentation
    `JwksIdentityVerifier` prête à être copiée chez Wallet/Fund/Ride.
+6. ✅ Projection DiddiFree Pro : `/pro/me`, demandes de capacités, synchronisation S2S par module
+   propriétaire et décision d'accès côté administration.
+7. ✅ Observabilité de base : health checks, métriques HTTP, métriques capabilities et corrélation des
+   requêtes sans labels contenant des identifiants utilisateur.
+8. ✅ Liaison vérifiée d'un email ou d'un téléphone sur un compte existant, avec OTP à durée limitée,
+   limites de tentatives, protection contre les doublons et unicité email insensible à la casse.
+9. ✅ Suppression de compte du MVP : demande authentifiée, révocation des sessions, restauration OTP
+   pendant 30 jours, événements `user.deletion_requested`, `user.deletion_cancelled` et `user.deleted`,
+   puis anonymisation finale conservant l'UUID et les historiques.
 
 ---
 
@@ -522,11 +619,13 @@ des décisions délibérément reportées, chacune avec son déclencheur.
 
 | Sujet | État en v1.0 | Ce que la v2 doit trancher |
 |---|---|---|
-| **Envoi SMS** | Port défini, implémentation de développement qui journalise le code | Contracter un agrégateur et écrire l'adaptateur. Rien d'autre ne bouge — c'est une classe de plus dans `infra`. Bloquant pour une ouverture publique |
+| **Envoi SMS** | Adapters Yellika et Senndo présents, sélectionnés par `OTP_SMS_PROVIDER`; logging conservé comme fallback de développement | Choisir le fournisseur de production, surveiller les quotas et finaliser la rotation des secrets. Le contrat applicatif reste inchangé |
 | **Authentification par mot de passe** | Argon2id en place, colonne `password_hash` existante, aucune route ne l'expose | Ouvrir les routes le jour où un besoin back-office (DiddiLegal, DiddiSanté) se confirme |
 | **KYC documentaire** | Le portillon est là (demande, file, décision, audit) ; la collecte de pièces ne l'est pas | Sous-module dédié : stockage des pièces, durées de conservation, qui y accède. Ne pas l'ajouter comme colonnes sur `users` |
+| **Fusion de comptes** | Non nécessaire pour le MVP. Un contact déjà utilisé est refusé avec `409` et aucun compte n'est fusionné automatiquement | Concevoir un parcours de fusion explicite après le MVP, avec preuve de possession des deux comptes, compte canonique, audit et coordination de tous les modules |
 | **Rôles multiples** | Un rôle principal unique par utilisateur | Une table de liaison, le jour où un `driver` doit aussi être `merchant`. Impacte le portillon KYC, qui raisonne aujourd'hui sur une demande à la fois |
 | **Auth service-à-service** | Les deux formes implémentées et désactivables par configuration | Arbitrage réseau avec l'Infra (VPC interne, mTLS, clé d'API), puis retrait de celle qui n'est pas retenue |
 | **Broker d'événements** | Redis Streams, persistant, at-least-once | Migrer vers Kafka si le volume, l'ordonnancement inter-partitions ou le replay long l'exigent. Un seul fichier change |
 | **CQRS complet** | CQRS léger, une seule base | Introduire un read replica quand la latence de lecture devient un problème **mesuré** malgré cache et index |
 | **Historique exposé en HTTP** | `user_status_history` et `user_role_history` écrites, interrogeables en base uniquement | Publier des routes de consultation quand une console d'administration en aura besoin |
+| **Réconciliation des capabilities** | Projection versionnée et événements at-least-once en place | Ajouter un job de réconciliation périodique avec chaque module quand les contrats consommateurs seront déployés |

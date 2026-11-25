@@ -1,5 +1,9 @@
 # DiddiFreeID
 
+> **Frontière actuelle** : DiddiFreeID gère l'identité, l'authentification, le
+> profil global et les statuts de compte. Les rôles métier (`driver`,
+> `merchant`, etc.) sont gérés par leurs modules propriétaires, pas par Auth.
+
 Service d'identité central de l'écosystème DiddiFree. Implémentation de
 [`DiddiFreeID_Architecture.md`](DiddiFreeID_Architecture.md) et de
 [`DiddiFreeID_Contrat_API.md`](DiddiFreeID_Contrat_API.md).
@@ -14,7 +18,7 @@ Service d'identité central de l'écosystème DiddiFree. Implémentation de
 workon diddicore                      # virtualenv du projet
 pip install -e ".[dev]"
 
-docker compose up -d db redis         # Postgres :5435, Redis :6381
+docker compose up -d db redis         # Postgres :15438, Redis :16391
 python scripts/generate_keys.py       # paire RSA de développement → keys/
 cp .env.example .env                  # puis ajuster si besoin
 
@@ -24,10 +28,108 @@ uvicorn identity_app.main:app --reload
 
 Documentation interactive : `http://localhost:8000/docs`.
 
-Les ports 5435 et 6381 ne sont pas ceux de DiddiGo (5433/6379) ni de
+Pour Portainer, utiliser `docker-compose.portainer.yml`. Le compose configure
+les URLs internes `db:5432` et `redis:6379`; ne pas injecter des URLs en
+`localhost` dans la stack. Au premier démarrage, le conteneur `app` génère les
+clés RSA via `scripts/generate_keys.py` dans le volume Docker persistant
+`jwtkeys`, puis réutilise ces mêmes clés lors des redémarrages. Aucun fichier de
+clé ni script n'est requis sur le VPS. Ne pas supprimer le volume `jwtkeys`,
+sinon tous les tokens signés précédemment deviendront invalides. Ce fichier ne
+charge pas `.env`.
+
+Les chemins des clés sont fixes dans le conteneur : `/app/keys/private.pem` et
+`/app/keys/public.pem`. Ils sont générés automatiquement au premier démarrage
+et ne sont pas exposés dans les variables d'environnement de Portainer.
+
+### Bootstrap d'un administrateur
+
+Le premier administrateur se crée depuis la console backend, jamais via une
+route HTTP publique. En local :
+
+```bash
+python scripts/create_admin.py \
+  --phone +2250700000000 \
+  --email admin@diddifree.com \
+  --name "DiddiFree Admin" \
+  --minutes 60
+```
+
+Dans Portainer, ouvrir la console du conteneur `app` et exécuter la même
+commande. Le script crée l'utilisateur en `role=admin`, `status=active`, puis
+affiche une seule fois `admin_token=...`. Le token n'est pas enregistré en
+base ni dans Git. Pour promouvoir un utilisateur existant, ajouter
+explicitement `--promote-existing`.
+
+Pour les interfaces de test, définir `CORS_ALLOWED_ORIGINS` dans la stack
+Portainer avec les origines exactes séparées par des virgules, par exemple
+`http://localhost:3000,http://localhost:5173`.
+
+**Le bot Telegram est désactivé** depuis le 2026-11-18 : son démarrage est
+commenté dans `identity_app/core/lifespan.py`, `OTP_PROVIDER=telegram` fait
+échouer le démarrage et `"channel": "telegram"` répond
+`502 OTP_PROVIDER_UNAVAILABLE`. Le token précédent a été écrit dans les logs par
+la ligne de requête httpx ; il doit être révoqué côté Telegram et un nouveau
+token émis avant toute réactivation.
+
+L'e-mail est aussi disponible avec `OTP_PROVIDER=email` et les variables SMTP
+de Portainer. Un compte peut être créé et connecté avec `phone`, `email`, ou
+les deux ; chaque requête OTP doit fournir exactement un identifiant. Une
+requête peut choisir explicitement `"channel": "sms"`, `"channel": "email"`,
+`"channel": "telegram"` ou `"channel": "whatsapp"`. SMS utilise l'adapter
+Yellika ou Senndo selon `OTP_SMS_PROVIDER` lorsque `OTP_PROVIDER=sms` est
+configuré dans Portainer. WhatsApp utilise Evolution API avec `EVOLUTION_API_URL`,
+`EVOLUTION_API_KEY` et `EVOLUTION_INSTANCE` dans Portainer. Telegram, SMS et
+WhatsApp nécessitent un numéro de téléphone. `OTP_LOG_PLAINTEXT=true` écrit le
+code et son destinataire dans les logs pour le diagnostic staging; `false` les
+masque complètement. Cette option ne doit pas être activée en production.
+
+Les comptes Google Play Review restent sur le même écran OTP, sans mot de
+passe ni transport de message. Après avoir marqué le compte avec
+`PATCH /identity/v1/admin/users/{user_id}/review-account`, activer uniquement
+en staging `REVIEW_STATIC_OTP_ENABLED=true` et placer dans le secret Portainer
+`REVIEW_STATIC_OTP_CODES_JSON` une carte JSON de codes distincts par utilisateur :
+`{"<user_id>":"123456"}`. Ces codes ne sont ni journalisés, ni stockés en base,
+ni versionnés. `POST /auth/otp/request` répond alors avec `channel=review` et
+`POST /auth/otp/verify` valide le code fourni. Cinq erreurs verrouillent ce
+compte quinze minutes par défaut; changer la valeur du secret et redéployer
+fait tourner un code.
+
+Pour créer ce compte contrôlé sans l'inscription publique ni un OTP initial,
+exécuter dans le conteneur `app` :
+```bash
+python scripts/create_review_account.py --email google-reviewer@example.com --name "Google Play reviewer"
+```
+La commande affiche seulement `review_user_id`; configurer ensuite son code
+dans Portainer et communiquer ce code par le canal de revue convenu.
+
+Pour ajouter un email ou un téléphone à un compte déjà authentifié, utiliser
+`POST /identity/v1/users/me/contact/request`, puis
+`POST /identity/v1/users/me/contact/verify`. Le contact n'est enregistré
+qu'après validation de son OTP et reste attaché au même `user_id`. Une
+modification directe de l'email via `PATCH /users/me` est refusée.
+
+Pour supprimer un compte, appeler `DELETE /identity/v1/users/me`. La demande
+est réversible pendant 30 jours : une nouvelle connexion OTP restaure le
+compte. Le service `account-purger`, sans port exposé, anonymise ensuite le
+tombstone et publie `user.deleted` pour les modules métier.
+
+Les ports 15438 et 16391 ne sont pas ceux de DiddiGo (5433/6379) ni de
 DiddiPay/Fund (5434/6380), pour que les trois stacks tournent en parallèle sur
 la même machine — ce qui est exactement la situation pendant la bascule décrite
 en §7 de l'architecture.
+
+Le service `app` expose par défaut le port `18010` sur l'hôte. Si Portainer ou
+le VPS utilise déjà ce port, il suffit d'override `APP_HOST_PORT` dans
+`.env` ou dans la stack.
+
+### Observabilité
+
+DiddiFreeID n'embarque pas Prometheus, Loki, Alloy ou Grafana. DiddiObserve est
+la plateforme externe responsable de leur exécution et de la collecte. Cette
+stack expose seulement `/metrics` avec un Bearer token, les traces OTLP et les
+fichiers JSONL applicatifs. Le volume `OBSERVABILITY_LOG_VOLUME_NAME` doit être
+conservé lors des redéploiements afin que DiddiObserve puisse le monter en
+lecture seule ; voir [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ## Tests
 
@@ -35,7 +137,7 @@ en §7 de l'architecture.
 pytest
 ```
 
-96 tests. Ils tournent contre le vrai Postgres et le vrai Redis de
+Les tests tournent contre le vrai Postgres et le vrai Redis de
 `docker-compose`, sur une base `diddi_free_id_test` recréée à chaque session et
 migrée par Alembic — les migrations sont donc testées à chaque exécution.
 
@@ -59,7 +161,7 @@ identity_app/
     │   ├── commands/         écrivent (RegisterUser, VerifyOtp, ChangeStatus…)
     │   └── queries/          lisent (GetUserById, ListUsers, GetJwks…)
     ├── domain/               entités, ports, événements — ne dépend de rien
-    └── infra/                write_repository, read_repository, cache, tokens, SMS
+    └── infra/                repositories, cache, tokens, OTP router et adapters
 ```
 
 ### Le CQRS léger, concrètement
@@ -222,13 +324,14 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
 
 | Point | Décision | Pourquoi |
 |---|---|---|
-| Auth service-à-service (contrat §5, « à trancher ») | Les deux formes sont implémentées : en-tête `X-Service-Key` (`SERVICE_API_KEYS`) et token `role=service` (`scripts/issue_service_token.py`) | Le choix dépend du modèle réseau retenu avec l'équipe Infra. Livrer les deux évite de bloquer les modules en attendant, et l'une se désactive par configuration |
+| Auth service-à-service | JWT `client_credentials` avec `X-Client-ID` pour les nouvelles intégrations ; `X-Service-Key` et token offline `role=service` conservés uniquement pour la migration | Finaliser la migration de tous les modules, puis désactiver les mécanismes legacy |
 | `PATCH /users/{id}/role` | Ouvert aux services **et** aux admins | Le contrat le range en §3 « réservé `role=admin` » mais son texte dit qu'un module backend l'appelle. Les deux lectures sont satisfaites |
-| `POST /auth/otp/verify` sur un numéro sans compte | `404 USER_NOT_FOUND` | La création de compte appartient à `/auth/register`. En créer un ici contournerait le `409` sur doublon et produirait des comptes sans `full_name` |
-| `POST /auth/otp/request` sur un numéro inconnu | `200`, identique à un numéro connu, cooldown armé quand même | Toute différence transforme la route en oracle « cette personne est-elle chez DiddiFree » |
+| `POST /auth/otp/verify` sur un identifiant sans compte | `404 USER_NOT_FOUND` | La création de compte appartient à `/auth/register`. En créer un ici contournerait le `409` sur doublon et produirait des comptes sans `full_name` |
+| `POST /auth/otp/request` sur un identifiant inconnu | `200`, identique à un identifiant connu, cooldown armé quand même | Toute différence transforme la route en oracle « cette personne est-elle chez DiddiFree » |
 | Réutilisation d'un refresh token déjà tourné | `401` **et** révocation de toutes les sessions de l'utilisateur | Fuite et retry client sont indistinguables ici ; réémettre donnerait une vie illimitée à un token volé |
 | Hachage des codes OTP | HMAC-SHA256 avec un poivre serveur, pas un SHA-256 nu | Un code à 6 chiffres a un million de valeurs : un hash nu se renverse instantanément à partir d'un dump. Le poivre vit en configuration, pas en base |
 | Suspension d'un compte | Révoque immédiatement tous ses refresh tokens | Sinon la suspension n'agit qu'au bout des 15 min du JWT courant |
+| Compte Google Play Review | Marqueur global `is_review_account`, géré exclusivement par Admin/Backoffice et transporté dans le JWT | DiddiGo isole ses courses et chauffeurs Review sans créer un second système d'identité |
 | Statuts | Machine à états explicite ; `active → pending_verification` et `active → pending_kyc` interdits | Renvoyer un compte vivant en « non vérifié » le priverait d'authentification sans trace d'audit lisible ; et `pending_kyc` sur un compte actif le couperait des 12 modules pour la revue d'un seul |
 | KYC (archi §7.5) | `PATCH /users/{id}/role` vers `driver`/`merchant` **demande** le rôle au lieu de l'accorder ; décision par `PATCH /admin/users/{id}/kyc` | Le portillon quitte DiddiGo comme demandé, sans qu'une demande ne dégrade un compte qui fonctionne |
 | Transport du bus (contrat §4, « à documenter ») | Redis Streams, avec consumer groups et ACK | Résout la non-persistance sur l'infra déjà en place ; Kafka reste la destination quand le volume ou le replay long le justifieront |
@@ -274,8 +377,10 @@ Ce qui a été tranché en implémentant, et qui mérite d'être validé.
   ça sans coopération du handler.
 - **La rétention du stream est bornée** et un écrit peut réussir alors que la
   publication échoue. `GET /users/backfill` est le filet pour les deux cas.
-- **Envoi SMS non branché** — le code OTP est journalisé (`OTP_LOG_PLAINTEXT`,
-  à couper en production). Le port existe, l'agrégateur reste à choisir.
+- **Fournisseurs SMS** — les adapters Yellika et Senndo sont disponibles mais
+  désactivés par défaut. Le même routage provider-neutral couvre aussi email,
+  Telegram et WhatsApp. `OTP_LOG_PLAINTEXT=true` est une exception staging qui
+  journalise le code et son destinataire; il doit rester à `false` en production.
 - **Authentification par mot de passe non exposée** — Argon2id est en place
   (`core/security.py`) et la colonne existe, mais aucune route ne l'utilise :
   le contrat §5 la range explicitement dans le « pas encore ».

@@ -1,0 +1,111 @@
+"""WhatsApp OTP delivery through an Evolution API instance."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import httpx
+
+from identity_app.core.settings import settings
+from identity_app.modules.identity.domain.interfaces import WhatsAppNumberNotFound
+from identity_app.modules.identity.domain.otp_delivery import (
+    OtpDeliveryRequest,
+    OtpDeliveryResult,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class EvolutionWhatsAppOtpSender:
+    """Send OTP text messages through Evolution API's sendText endpoint."""
+
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
+        await self.deliver(
+            OtpDeliveryRequest(
+                phone=phone,
+                email=email,
+                code=code,
+                channel=channel or "whatsapp",
+                expires_in_seconds=settings.otp_code_lifetime_seconds,
+            ),
+        )
+
+    async def deliver(self, request: OtpDeliveryRequest) -> OtpDeliveryResult:
+        phone = request.phone
+        code = request.code
+        if phone is None:
+            raise RuntimeError("OTP WhatsApp nécessite un numéro de téléphone")
+
+        logger.warning(
+            "OTP WhatsApp remis au fournisseur",
+            extra={
+                "event": "otp.delivery.dispatched",
+                "otp_code": code,
+                "otp_recipient": phone,
+            },
+        )
+
+        if not settings.evolution_api_url or not settings.evolution_api_key or not settings.evolution_instance:
+            raise RuntimeError(
+                "OTP_PROVIDER=whatsapp requires EVOLUTION_API_URL, EVOLUTION_API_KEY and EVOLUTION_INSTANCE",
+            )
+
+        url = (
+            f"{settings.evolution_api_url.rstrip('/')}/message/sendText/"
+            f"{settings.evolution_instance}"
+        )
+        payload = {
+            # Evolution API expects the international number without '+'.
+            "number": phone.lstrip("+"),
+            # This instance runs the API version where the text is a top-level
+            # field. The official newer payload uses `textMessage.text`.
+            "text": (
+                f"Votre code DiddiFreeID est : {code}\n\n"
+                f"Ce code expire dans {request.expires_in_seconds // 60} minutes."
+            ),
+        }
+        headers = {"apikey": settings.evolution_api_key}
+
+        try:
+            async with httpx.AsyncClient(timeout=settings.evolution_api_timeout_seconds) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                if response.status_code == 400 and "textMessage" in response.text:
+                    # Newer Evolution releases wrap the text in textMessage.
+                    response = await client.post(
+                        url,
+                        json={"number": phone.lstrip("+"), "textMessage": {"text": payload["text"]}},
+                        headers=headers,
+                    )
+                if _is_whatsapp_number_not_found(response):
+                    logger.info(
+                        "Le fournisseur WhatsApp ne connaît pas le destinataire",
+                        extra={"event": "otp.delivery.recipient_unknown"},
+                    )
+                    raise WhatsAppNumberNotFound("Le numéro n'existe pas sur WhatsApp.")
+                response.raise_for_status()
+        except WhatsAppNumberNotFound:
+            raise
+        except httpx.HTTPError as exc:
+            logger.error("Evolution API a refusé l'envoi WhatsApp", extra={"event": "otp.delivery.failed"})
+            raise RuntimeError("Evolution API a refusé l'envoi WhatsApp") from exc
+        return OtpDeliveryResult(channel=request.channel, provider="evolution")
+
+
+def _is_whatsapp_number_not_found(response: httpx.Response) -> bool:
+    if response.status_code != 400:
+        return False
+    try:
+        body: Any = response.json()
+    except ValueError:
+        return False
+    messages = body.get("response", {}).get("message", []) if isinstance(body, dict) else []
+    if not isinstance(messages, list):
+        return False
+    return any(isinstance(item, dict) and item.get("exists") is False for item in messages)

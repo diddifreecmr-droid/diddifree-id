@@ -16,14 +16,18 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from identity_app.modules.identity.domain.capabilities import Capability
+from identity_app.modules.identity.domain.contact_link import ContactLinkChallenge
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
     User,
+    UserReviewAccountChange,
     UserRoleChange,
     UserStatusChange,
 )
 from identity_app.modules.identity.domain.events import DomainEvent
+from identity_app.modules.identity.domain.service_client import ServiceClient
 
 
 class UserWriteRepository(Protocol):
@@ -39,6 +43,9 @@ class UserWriteRepository(Protocol):
     async def find_by_phone(self, phone: str) -> User | None:
         ...
 
+    async def find_by_email(self, email: str) -> User | None:
+        ...
+
     async def record_status_change(self, change: UserStatusChange) -> None:
         """Append to `identity.user_status_history`. Part of the same
         transaction as the status write it documents — an audit trail that can
@@ -48,6 +55,10 @@ class UserWriteRepository(Protocol):
     async def record_role_change(self, change: UserRoleChange) -> None:
         """Append to `identity.user_role_history` — role grants and KYC
         refusals alike, with the caller's `reason`."""
+        ...
+
+    async def record_review_account_change(self, change: UserReviewAccountChange) -> None:
+        """Append the review-account decision to its immutable audit trail."""
         ...
 
     async def commit(self) -> None:
@@ -75,7 +86,41 @@ class UserReadRepository(Protocol):
         page: int,
         page_size: int,
     ) -> tuple[list[User], int]:
-        """Returns one page of users and the total count matching the filters."""
+        """Return one page of users and the total count matching the filters."""
+        ...
+
+
+class CapabilityReadRepository(Protocol):
+    async def list_for_user(self, user_id: UUID) -> list[Capability]:
+        ...
+
+
+class CapabilityWriteRepository(Protocol):
+    async def get(self, user_id: UUID, service: str, capability_type: str) -> Capability | None:
+        ...
+
+    async def upsert(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        access_status: str | None = None,
+        operational_status: str | None = None,
+        status_source: str | None = None,
+        actions: list[str] | None = None,
+        projection_version: int | None = None,
+        last_event_id: str | None = None,
+    ) -> Capability:
+        ...
+
+    async def commit(self) -> None:
+        ...
+
+
+class UserActivityRepository(Protocol):
+    async def record(self, user_id: UUID, *, at: datetime | None = None) -> None:
+        """Record authenticated activity in the current reporting day."""
         ...
 
 
@@ -83,8 +128,8 @@ class OtpRepository(Protocol):
     async def save(self, otp: OtpCode) -> OtpCode:
         ...
 
-    async def find_latest_active(self, phone: str) -> OtpCode | None:
-        """Newest OTP for `phone` that has not been consumed. Expiry is checked
+    async def find_latest_active(self, phone: str | None, email: str | None) -> OtpCode | None:
+        """Newest OTP for one identifier that has not been consumed. Expiry is checked
         by the caller so it can answer `410 OTP_EXPIRED` rather than the
         indistinguishable `400 OTP_INVALID`."""
         ...
@@ -95,6 +140,28 @@ class OtpRepository(Protocol):
 
     async def mark_consumed(self, otp_id: UUID) -> None:
         """Idempotent — a second call on a consumed OTP is a no-op."""
+        ...
+
+    async def commit(self) -> None:
+        ...
+
+
+class ContactLinkChallengeRepository(Protocol):
+    async def save(self, challenge: ContactLinkChallenge) -> ContactLinkChallenge:
+        ...
+
+    async def find_latest_active(
+        self,
+        user_id: UUID,
+        contact_type: str,
+        target: str,
+    ) -> ContactLinkChallenge | None:
+        ...
+
+    async def register_attempt(self, challenge_id: UUID) -> int:
+        ...
+
+    async def mark_consumed(self, challenge_id: UUID) -> None:
         ...
 
     async def commit(self) -> None:
@@ -119,6 +186,27 @@ class RefreshTokenRepository(Protocol):
         ...
 
 
+class ServiceClientRepository(Protocol):
+    async def find_by_client_id(self, client_id: str) -> ServiceClient | None:
+        ...
+
+    async def list_clients(self) -> list[ServiceClient]:
+        ...
+
+    async def update_client(
+        self,
+        client_id: str,
+        *,
+        allowed_audiences: list[str] | None = None,
+        allowed_scopes: list[str] | None = None,
+        active: bool | None = None,
+    ) -> ServiceClient | None:
+        ...
+
+    async def rotate_secret(self, client_id: str, *, secret_hash: str) -> ServiceClient | None:
+        ...
+
+
 class ProfileCache(Protocol):
     """Read-through cache for user profiles. Queries only — a command that read
     a cached profile before writing could persist a stale row."""
@@ -138,8 +226,22 @@ class EventPublisher(Protocol):
         ...
 
 
+class OtpDeliveryRejected(RuntimeError):
+    """The transport rejected this destination without being generally down."""
+
+
+class WhatsAppNumberNotFound(OtpDeliveryRejected):
+    """The WhatsApp transport reports that the destination number does not exist."""
+
+
 class OtpSender(Protocol):
-    async def send(self, phone: str, code: str) -> None:
+    async def send(
+        self,
+        phone: str | None,
+        code: str,
+        channel: str | None = None,
+        email: str | None = None,
+    ) -> None:
         """Deliver the plaintext code. The code is never stored in clear, so
-        this is the only moment it exists outside the user's phone."""
+        this is the only moment it exists outside the user's device."""
         ...

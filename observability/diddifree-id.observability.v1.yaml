@@ -1,0 +1,170 @@
+apiVersion: diddi.observability/v1
+kind: ObservabilityManifest
+metadata:
+  name: diddifree-id
+  version: 1.2.1
+  contract_version: 1.2.1
+  repository: diddi-free-id
+  owner: DiddiFreeID team
+  operational_contact_ref: DIDDIFREE_ID_OPERATIONS_CONTACT
+spec:
+  compliance_state: inventoried
+  identity:
+    service_namespace: diddi
+    service_name: diddifree-id
+    service_version_env: SERVICE_VERSION
+    deployment_environment_env: ENVIRONMENT
+    deployment_id_env: DEPLOYMENT_ID
+    deployment_id_legacy_env: DIDDI_DEPLOYMENT_ID
+    instance_id: generated-at-process-start-with-optional-SERVICE_INSTANCE_ID-prefix
+    observability_version: 1.2.1
+    components: [api, account-purger]
+  components:
+    - name: api
+      type: http-api
+      internal_port: 8000
+      endpoints:
+        liveness: /health/live
+        readiness: /health/ready
+        worker_health: /health/workers
+        metrics: /metrics
+      authentication:
+        metrics: Bearer METRICS_BEARER_TOKEN
+    - name: account-purger
+      type: periodic-worker
+      schedule: every 3600 seconds
+      health:
+        backend: redis
+        key: identity:observability:worker:account-purger
+        stale_after_seconds_env: WORKER_HEARTBEAT_STALE_SECONDS
+        ttl_seconds_env: WORKER_HEARTBEAT_TTL_SECONDS
+  signals:
+    logs:
+      transport: file-jsonl
+      central_chain: DiddiFreeID-JSONL-volume-to-DiddiObserve-Alloy-to-Loki
+      stdout: retained-local-only-with-docker-rotation
+      schema_version: 1.0.0
+      paths:
+        api:
+          active_env: OBSERVABILITY_LOG_FILE
+          default: /var/log/diddifree/observability-api.jsonl
+          archives: /var/log/diddifree/observability-api.jsonl.[1-5]
+        account_purger:
+          active_env: WORKER_OBSERVABILITY_LOG_FILE
+          default: /var/log/diddifree/observability-worker.jsonl
+          archives: /var/log/diddifree/observability-worker.jsonl.[1-5]
+      volume:
+        name_env: OBSERVABILITY_LOG_VOLUME_NAME
+        access:
+          producer: read-write
+          diddiobserve_collector: read-only
+      rotation:
+        active_file_max_bytes: 10485760
+        archive_count_per_writer: 5
+        max_budget_per_writer_bytes: 62914560
+        declared_writers: [api, account-purger]
+        max_budget_all_writers_bytes: 125829120
+        cleanup: controlled-deployment-removes-orphaned-files-only-after-collector-position-review
+        recovery: Alloy-must-persist-positions-and-read-exact-active-files-not-archive-globs
+      stdout_docker_rotation:
+        driver: local
+        max_size: 10m
+        max_files: 5
+      correlation_headers: [X-Request-ID, X-Correlation-ID]
+      max_event_bytes: 65536
+      secret_policy: redact-by-default
+    metrics:
+      format: prometheus
+      path: /metrics
+      auth_secret_ref: METRICS_BEARER_TOKEN
+      families:
+        - diddi_http_server_requests_total
+        - diddi_http_server_request_duration_seconds
+        - diddi_dependency_requests_total
+        - diddi_dependency_request_duration_seconds
+        - diddi_jobs_total
+        - diddi_job_duration_seconds
+        - diddi_worker_heartbeat_timestamp_seconds
+        - diddi_telemetry_dropped_total
+      labels: bounded-only
+    traces:
+      protocol: otlp-http-protobuf
+      endpoint_env_priority:
+        - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+        - OTEL_EXPORTER_OTLP_ENDPOINT-plus-/v1/traces
+      headers_secret_ref: OTEL_EXPORTER_OTLP_HEADERS
+      certificate_path_env: OTEL_EXPORTER_OTLP_CERTIFICATE
+      global_enable_env: OTEL_ENABLED
+      batching:
+        max_queue_size: 2048
+        schedule_delay_seconds: 5
+        export_timeout_seconds: 5
+      sampling:
+        validation_ratio: 1.0
+        production_ratio: 0.1
+      propagation:
+        http: w3c-trace-context
+        async_producer: [traceparent, tracestate, request_id]
+  dependencies:
+    critical: [postgresql, redis, jwt-signing-keys, otp-provider-configuration]
+    optional: [diddiobserve-otlp-collector, diddiobserve-jsonl-collector]
+  configuration:
+    common_variable_mapping:
+      OTEL_SERVICE_NAME: fixed-to-diddifree-id-and-validated-at-process-start
+      ENVIRONMENT: ENVIRONMENT
+      DEPLOYMENT_ID: DIDDI_DEPLOYMENT_ID-settings-alias
+      OTEL_EXPORTER_OTLP_ENDPOINT: supported-as-trace-base-when-specific-trace-url-is-empty
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: supported-and-prioritary
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: not-applicable-file-jsonl-profile
+      OTEL_LOGS_ENABLED: not-applicable-file-jsonl-profile
+      METRICS_BEARER_TOKEN: METRICS_AUTH_TOKEN-settings-alias
+    required_from_central_platform:
+      - METRICS_BEARER_TOKEN
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT-or-OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
+      - DIDDIFREE_ID_OPERATIONS_CONTACT
+    deployment_required: [SERVICE_VERSION, ENVIRONMENT, DEPLOYMENT_ID]
+    optional:
+      - SERVICE_INSTANCE_ID
+      - OTEL_ENABLED
+      - OTEL_TRACE_SAMPLE_RATIO
+      - OTEL_EXPORTER_OTLP_CERTIFICATE
+      - OBSERVABILITY_LOG_FILE
+      - WORKER_OBSERVABILITY_LOG_FILE
+      - OBSERVABILITY_LOG_VOLUME_NAME
+      - WORKER_HEARTBEAT_STALE_SECONDS
+      - WORKER_HEARTBEAT_TTL_SECONDS
+  policies:
+    retention:
+      central_owner: diddiobserve
+      staging:
+        logs_days: 14
+        traces_days: 7
+        metrics_days: 30
+      production:
+        logs_days: 30
+        traces_days: 14
+        metrics_days: 90
+    availability_targets:
+      http_error_rate_5xx: '< 5% over 10m'
+      p95_latency_seconds: '<= 1 over 10m'
+    runbook: docs/OBSERVABILITY_RUNBOOK.md
+  known_exceptions:
+    - criterion: C03
+      owner: DiddiFreeID team
+      scope: staging-only-when-OTP_LOG_PLAINTEXT=true
+      reason: OTP delivery events may include attributes.otp.code and attributes.otp.recipient.
+      authorized_readers: DiddiFreeID staging operators with explicit log access
+      retention: bounded-local-file-rotation; central collection requires explicit approval and filtering policy
+      disable_procedure: set OTP_LOG_PLAINTEXT=false-and-redeploy-before-central-collection
+      review_due: before-production-connection
+    - criterion: C06
+      reason: Cross-service propagation requires a central receiver and a real downstream service.
+    - criterion: C07
+      reason: This service publishes Redis events but has no local asynchronous consumer.
+    - criterion: C10
+      reason: The required five-minute collector outage test needs DiddiObserve.
+    - criterion: C11
+      reason: Central ingestion and correlation require DiddiObserve.
+    - criterion: C12
+      reason: Rotation under load, Alloy read-only collection, persisted positions, permissions and disk-capacity alerts require the deployed central collector.

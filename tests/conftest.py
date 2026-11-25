@@ -9,15 +9,14 @@ Strategy, mirroring DiddiGo's so the two suites feel like one:
   * the schema is built once per session by running Alembic against that
     database, so the migration itself is under test on every run;
   * `client` binds httpx to the ASGI app in-process, with no network;
-  * `otp_code` captures the plaintext code the SMS stub logs, which is how a
-    test completes a verification without an SMS provider.
+  * `otp_code` captures the request at the local OTP sender boundary. Tests
+    never need to recover credentials from logs.
 """
 
 from __future__ import annotations
 
-import logging
+import json
 import os
-import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 
@@ -27,25 +26,59 @@ import pytest
 # Settings are read at import time, so every environment value the app depends
 # on must be set before the first `identity_app.*` import below.
 TEST_DB_NAME = "diddi_free_id_test"
-ADMIN_DSN = "postgresql://postgres:postgres@localhost:5435/postgres"
-TEST_DSN_SYNC = f"postgresql://postgres:postgres@localhost:5435/{TEST_DB_NAME}"
-TEST_DSN_ASYNC = f"postgresql+asyncpg://postgres:postgres@localhost:5435/{TEST_DB_NAME}"
+ADMIN_DSN = "postgresql://postgres:postgres@localhost:15438/postgres"
+TEST_DSN_SYNC = f"postgresql://postgres:postgres@localhost:15438/{TEST_DB_NAME}"
+TEST_DSN_ASYNC = f"postgresql+asyncpg://postgres:postgres@localhost:15438/{TEST_DB_NAME}"
 
 os.environ["DATABASE_URL"] = TEST_DSN_ASYNC
-os.environ.setdefault("REDIS_URL", "redis://localhost:6381/1")
+os.environ.setdefault("REDIS_URL", "redis://localhost:16391/1")
 # Rate limiting off by default so back-to-back OTP requests in a test do not
 # 429. `test_rate_limiting.py` turns it back on explicitly for its own case.
 os.environ.setdefault("OTP_RATE_LIMIT_SECONDS", "0")
 os.environ.setdefault("OTP_HASH_PEPPER", "test-pepper-at-least-32-characters-long")
-os.environ.setdefault("OTP_LOG_PLAINTEXT", "true")
+os.environ.setdefault("OTP_LOG_PLAINTEXT", "false")
 os.environ.setdefault("JWT_PRIVATE_KEY_PATH", "keys/private.pem")
 os.environ.setdefault("JWT_PUBLIC_KEY_PATH", "keys/public.pem")
 os.environ.setdefault("JWT_ACTIVE_KID", "dev-2026-07-01")
+os.environ.setdefault("METRICS_AUTH_TOKEN", "test-metrics-token")
 # Exercises the service-to-service path of contract §5.
 SERVICE_KEY = "test-service-key"
 os.environ.setdefault("SERVICE_API_KEYS", SERVICE_KEY)
 
 API = "/identity/v1"
+
+
+class EventReader:
+    """Read events published after the fixture starts."""
+
+    def __init__(self, redis, last_id: str) -> None:  # noqa: ANN001
+        self._redis = redis
+        self._last_id = last_id
+
+    async def read(self) -> list[dict]:
+        from identity_app.shared_kernel.events.bus import STREAM_KEY
+
+        entries = await self._redis.xrange(STREAM_KEY, f"({self._last_id}", "+")
+        return [json.loads(fields["payload"]) for _entry_id, fields in entries]
+
+    async def read_named(self, name: str) -> list[dict]:
+        return [event for event in await self.read() if event["event"] == name]
+
+
+@pytest.fixture
+async def events():
+    """Return a Redis Stream reader positioned at the current stream tail."""
+    from identity_app.core.redis import create_redis_pool
+    from identity_app.core.settings import settings
+    from identity_app.shared_kernel.events.bus import STREAM_KEY
+
+    redis = create_redis_pool(settings.redis_url)
+    tail = await redis.xrevrange(STREAM_KEY, "+", "-", count=1)
+    last_id = tail[0][0] if tail else "0-0"
+    try:
+        yield EventReader(redis, last_id)
+    finally:
+        await redis.aclose()
 
 
 def _recreate_test_database() -> None:
@@ -130,27 +163,11 @@ async def client(database) -> AsyncIterator[httpx.AsyncClient]:
             await engine.dispose()
 
 
-OTP_LOGGER = "identity_app.modules.identity.infra.sms_adapter"
-
-
-class OtpCapture(logging.Handler):
-    """Records the plaintext code the SMS stub logs.
-
-    Its own handler rather than pytest's `caplog` because `caplog` only sees
-    records emitted inside the test body, and the fixtures below request codes
-    during setup.
-    """
-
-    _PATTERN = re.compile(r"est (\d{6})\.")
+class OtpCapture:
+    """Records test OTPs in memory at the delivery adapter boundary."""
 
     def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
         self.codes: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        match = self._PATTERN.search(record.getMessage())
-        if match:
-            self.codes.append(match.group(1))
 
     def latest(self) -> str:
         if not self.codes:
@@ -159,17 +176,18 @@ class OtpCapture(logging.Handler):
 
 
 @pytest.fixture
-def otp_code() -> Iterator[OtpCapture]:
-    handler = OtpCapture()
-    logger = logging.getLogger(OTP_LOGGER)
-    previous_level = logger.level
-    logger.setLevel(logging.WARNING)
-    logger.addHandler(handler)
-    try:
-        yield handler
-    finally:
-        logger.removeHandler(handler)
-        logger.setLevel(previous_level)
+def otp_code(monkeypatch: pytest.MonkeyPatch) -> Iterator[OtpCapture]:
+    from identity_app.modules.identity.domain.otp_delivery import OtpDeliveryResult
+    from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
+
+    capture = OtpCapture()
+
+    async def capture_delivery(_sender, request):  # noqa: ANN001
+        capture.codes.append(request.code)
+        return OtpDeliveryResult(channel=request.channel, provider="test")
+
+    monkeypatch.setattr(LoggingOtpSender, "deliver", capture_delivery)
+    yield capture
 
 
 @pytest.fixture

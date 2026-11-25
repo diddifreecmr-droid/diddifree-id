@@ -3,10 +3,23 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+graphify-out/
 .venv/
 venv/
+.claude/
+debug.log
+false.env
 
 # Local configuration and, above all, signing material. A private key in the
 # repository would defeat the whole point of RS256 (architecture §5).
 .env
+.env copy
 keys/
+diddimap-staging.secrets.env
+pilotage-staging-identity.secrets.env
+pilotage-staging-diddipay.secrets.env
+odoo-staging-pilotage.secrets.env
+pilotage-staging-diddifood.secrets.env
+diddigo-staging-diddipay.secrets.env
+diddicomms-staging.secrets.env
+*.secrets.env

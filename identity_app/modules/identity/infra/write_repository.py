@@ -11,14 +11,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity_app.core.settings import settings
+from identity_app.modules.identity.domain.capabilities import Capability
+from identity_app.modules.identity.domain.contact_link import ContactLinkChallenge
 from identity_app.modules.identity.domain.entities import (
     OtpCode,
     RefreshToken,
     User,
+    UserLanguage,
+    UserReviewAccountChange,
     UserRole,
     UserRoleChange,
     UserStatus,
@@ -31,13 +38,23 @@ def _user_to_domain(row: orm.UserModel) -> User:
     return User(
         id=row.id,
         phone=row.phone,
+        email=row.email,
         full_name=row.full_name,
+        language=UserLanguage(row.language),
+        photo_url=row.photo_url,
         password_hash=row.password_hash,
         role=UserRole(row.role),
         status=UserStatus(row.status),
         requested_role=UserRole(row.requested_role) if row.requested_role else None,
+        is_review_account=row.is_review_account,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        deletion_requested_at=row.deletion_requested_at,
+        deletion_scheduled_for=row.deletion_scheduled_for,
+        deletion_previous_status=(
+            UserStatus(row.deletion_previous_status) if row.deletion_previous_status else None
+        ),
+        deleted_at=row.deleted_at,
     )
 
 
@@ -55,21 +72,42 @@ class SqlAlchemyUserWriteRepository:
             row = orm.UserModel(
                 id=user.id,
                 phone=user.phone,
+                email=user.email,
                 full_name=user.full_name,
+                language=user.language.value,
+                photo_url=user.photo_url,
                 password_hash=user.password_hash,
                 role=user.role.value,
                 status=user.status.value,
                 requested_role=user.requested_role.value if user.requested_role else None,
+                is_review_account=user.is_review_account,
                 created_at=user.created_at or now,
                 updated_at=now,
+                deletion_requested_at=user.deletion_requested_at,
+                deletion_scheduled_for=user.deletion_scheduled_for,
+                deletion_previous_status=(
+                    user.deletion_previous_status.value if user.deletion_previous_status else None
+                ),
+                deleted_at=user.deleted_at,
             )
             self._session.add(row)
         else:
+            row.phone = user.phone
             row.full_name = user.full_name
+            row.email = user.email
+            row.language = user.language.value
+            row.photo_url = user.photo_url
             row.password_hash = user.password_hash
             row.role = user.role.value
             row.status = user.status.value
             row.requested_role = user.requested_role.value if user.requested_role else None
+            row.is_review_account = user.is_review_account
+            row.deletion_requested_at = user.deletion_requested_at
+            row.deletion_scheduled_for = user.deletion_scheduled_for
+            row.deletion_previous_status = (
+                user.deletion_previous_status.value if user.deletion_previous_status else None
+            )
+            row.deleted_at = user.deleted_at
             row.updated_at = now
         await self._session.flush()
         user.updated_at = now
@@ -93,6 +131,15 @@ class SqlAlchemyUserWriteRepository:
         result = await self._session.execute(
             select(orm.UserModel)
             .where(orm.UserModel.phone == phone)
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        return None if row is None else _user_to_domain(row)
+
+    async def find_by_email(self, email: str) -> User | None:
+        result = await self._session.execute(
+            select(orm.UserModel)
+            .where(func.lower(orm.UserModel.email) == email.strip().lower())
             .execution_options(populate_existing=True),
         )
         row = result.scalar_one_or_none()
@@ -127,6 +174,140 @@ class SqlAlchemyUserWriteRepository:
         )
         await self._session.flush()
 
+    async def record_review_account_change(self, change: UserReviewAccountChange) -> None:
+        self._session.add(
+            orm.UserReviewAccountHistoryModel(
+                id=change.id,
+                user_id=change.user_id,
+                from_is_review_account=change.from_is_review_account,
+                to_is_review_account=change.to_is_review_account,
+                reason=change.reason,
+                changed_by=change.changed_by,
+                changed_by_client_id=change.changed_by_client_id,
+                changed_at=change.changed_at,
+            ),
+        )
+        await self._session.flush()
+
+
+class SqlAlchemyUserActivityWriteRepository:
+    """Record one authenticated activity row per user and reporting day."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record(self, user_id: UUID, *, at: datetime | None = None) -> None:
+        seen_at = at or datetime.now(UTC)
+        activity_date = seen_at.astimezone(ZoneInfo(settings.identity_reporting_timezone)).date()
+        statement = insert(orm.UserActivityDailyModel).values(
+            user_id=user_id,
+            activity_date=activity_date,
+            first_seen_at=seen_at,
+            last_seen_at=seen_at,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[orm.UserActivityDailyModel.user_id, orm.UserActivityDailyModel.activity_date],
+            set_={
+                "last_seen_at": func.greatest(
+                    orm.UserActivityDailyModel.last_seen_at,
+                    statement.excluded.last_seen_at,
+                ),
+            },
+        )
+        await self._session.execute(statement)
+        await self._session.flush()
+
+
+def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
+    return Capability(
+        user_id=row.user_id,
+        service=row.service,
+        capability_type=row.capability_type,
+        access_status=row.access_status,
+        operational_status=row.operational_status,
+        status_source=row.status_source,
+        actions=tuple(row.actions or ()),
+        projection_version=row.projection_version,
+        last_event_id=row.last_event_id,
+        updated_at=row.updated_at,
+        created_at=row.created_at,
+    )
+
+
+class SqlAlchemyCapabilityWriteRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(self, user_id: UUID, service: str, capability_type: str) -> Capability | None:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel)
+            .where(
+                orm.UserCapabilityModel.user_id == user_id,
+                orm.UserCapabilityModel.service == service,
+                orm.UserCapabilityModel.capability_type == capability_type,
+            )
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        return None if row is None else _capability_to_domain(row)
+
+    async def upsert(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        access_status: str | None = None,
+        operational_status: str | None = None,
+        status_source: str | None = None,
+        actions: list[str] | None = None,
+        projection_version: int | None = None,
+        last_event_id: str | None = None,
+    ) -> Capability:
+        result = await self._session.execute(
+            select(orm.UserCapabilityModel).where(
+                orm.UserCapabilityModel.user_id == user_id,
+                orm.UserCapabilityModel.service == service,
+                orm.UserCapabilityModel.capability_type == capability_type,
+            ),
+        )
+        row = result.scalar_one_or_none()
+        now = datetime.now(UTC)
+        if row is None:
+            row = orm.UserCapabilityModel(
+                user_id=user_id,
+                service=service,
+                capability_type=capability_type,
+                access_status=access_status or "requested",
+                operational_status=operational_status or "unknown",
+                status_source=status_source or "diddifreeid",
+                actions=actions or [],
+                projection_version=projection_version or 1,
+                last_event_id=last_event_id,
+                created_at=now,
+                updated_at=now,
+            )
+            self._session.add(row)
+        else:
+            if access_status is not None:
+                row.access_status = access_status
+            if operational_status is not None:
+                row.operational_status = operational_status
+            if status_source is not None:
+                row.status_source = status_source
+            if actions is not None:
+                row.actions = actions
+            if projection_version is not None:
+                row.projection_version = projection_version
+            if last_event_id is not None:
+                row.last_event_id = last_event_id
+            row.updated_at = now
+        await self._session.flush()
+        return _capability_to_domain(row)
+
+    async def commit(self) -> None:
+        await self._session.commit()
+
 
 class SqlAlchemyOtpRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -140,6 +321,7 @@ class SqlAlchemyOtpRepository:
             orm.OtpCodeModel(
                 id=otp.id,
                 phone=otp.phone,
+                email=otp.email,
                 code_hash=otp.code_hash,
                 expires_at=otp.expires_at,
                 consumed_at=otp.consumed_at,
@@ -150,11 +332,12 @@ class SqlAlchemyOtpRepository:
         await self._session.flush()
         return otp
 
-    async def find_latest_active(self, phone: str) -> OtpCode | None:
+    async def find_latest_active(self, phone: str | None, email: str | None) -> OtpCode | None:
+        identifier_filter = orm.OtpCodeModel.phone == phone if phone else orm.OtpCodeModel.email == email
         result = await self._session.execute(
             select(orm.OtpCodeModel)
             .where(
-                orm.OtpCodeModel.phone == phone,
+                identifier_filter,
                 orm.OtpCodeModel.consumed_at.is_(None),
             )
             .order_by(orm.OtpCodeModel.created_at.desc())
@@ -167,6 +350,7 @@ class SqlAlchemyOtpRepository:
         return OtpCode(
             id=row.id,
             phone=row.phone,
+            email=row.email,
             code_hash=row.code_hash,
             expires_at=row.expires_at,
             created_at=row.created_at,
@@ -190,6 +374,82 @@ class SqlAlchemyOtpRepository:
 
     async def mark_consumed(self, otp_id: UUID) -> None:
         row = await self._session.get(orm.OtpCodeModel, otp_id)
+        if row is None or row.consumed_at is not None:
+            return
+        row.consumed_at = datetime.now(UTC)
+        await self._session.flush()
+
+
+class SqlAlchemyContactLinkChallengeRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def commit(self) -> None:
+        await self._session.commit()
+
+    async def save(self, challenge: ContactLinkChallenge) -> ContactLinkChallenge:
+        self._session.add(
+            orm.ContactLinkChallengeModel(
+                id=challenge.id,
+                user_id=challenge.user_id,
+                contact_type=challenge.contact_type,
+                target=challenge.target,
+                code_hash=challenge.code_hash,
+                expires_at=challenge.expires_at,
+                consumed_at=challenge.consumed_at,
+                attempts=challenge.attempts,
+                created_at=challenge.created_at,
+            ),
+        )
+        await self._session.flush()
+        return challenge
+
+    async def find_latest_active(
+        self,
+        user_id: UUID,
+        contact_type: str,
+        target: str,
+    ) -> ContactLinkChallenge | None:
+        result = await self._session.execute(
+            select(orm.ContactLinkChallengeModel)
+            .where(
+                orm.ContactLinkChallengeModel.user_id == user_id,
+                orm.ContactLinkChallengeModel.contact_type == contact_type,
+                orm.ContactLinkChallengeModel.target == target,
+                orm.ContactLinkChallengeModel.consumed_at.is_(None),
+            )
+            .order_by(orm.ContactLinkChallengeModel.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True),
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return ContactLinkChallenge(
+            id=row.id,
+            user_id=row.user_id,
+            contact_type=row.contact_type,
+            target=row.target,
+            code_hash=row.code_hash,
+            expires_at=row.expires_at,
+            created_at=row.created_at,
+            consumed_at=row.consumed_at,
+            attempts=row.attempts,
+        )
+
+    async def register_attempt(self, challenge_id: UUID) -> int:
+        result = await self._session.execute(
+            update(orm.ContactLinkChallengeModel)
+            .where(orm.ContactLinkChallengeModel.id == challenge_id)
+            .values(attempts=orm.ContactLinkChallengeModel.attempts + 1)
+            .returning(orm.ContactLinkChallengeModel.attempts),
+        )
+        attempts = result.scalar_one()
+        await self._session.flush()
+        return attempts
+
+    async def mark_consumed(self, challenge_id: UUID) -> None:
+        row = await self._session.get(orm.ContactLinkChallengeModel, challenge_id)
         if row is None or row.consumed_at is not None:
             return
         row.consumed_at = datetime.now(UTC)

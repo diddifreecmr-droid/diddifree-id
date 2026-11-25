@@ -34,12 +34,19 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 
+# These values remain readable for a rolling migration of old rows, but Auth
+# must not assign them. The owning modules keep their own business roles.
+MODULE_OWNED_ROLE_NAMES: frozenset[str] = frozenset({"driver", "merchant"})
+
+
 #: Roles DiddiFreeID will not hand out without a KYC decision (architecture §7.5:
 #: driver validation moves here, out of DiddiGo's auto-approval).
 #:
 #: `admin` is absent on purpose — the first admin is bootstrapped by ops, and a
 #: KYC queue that nobody can approve until an admin exists would deadlock.
-KYC_REQUIRED_ROLES: frozenset[UserRole] = frozenset({UserRole.DRIVER, UserRole.MERCHANT})
+# KYC for a business role belongs to the owning module. This set is kept empty
+# so new Auth flows can never create a module-owned KYC request.
+KYC_REQUIRED_ROLES: frozenset[UserRole] = frozenset()
 
 
 class UserStatus(str, Enum):
@@ -47,6 +54,15 @@ class UserStatus(str, Enum):
     PENDING_KYC = "pending_kyc"
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    DELETION_PENDING = "deletion_pending"
+    DELETED = "deleted"
+
+
+class UserLanguage(str, Enum):
+    """Languages currently supported by the ecosystem profile."""
+
+    FR = "fr"
+    EN = "en"
 
 
 # Transitions the OTP flow, the KYC flow or an admin may perform. Anything
@@ -62,11 +78,22 @@ class UserStatus(str, Enum):
 #     stays exactly as usable as it was.
 ALLOWED_STATUS_TRANSITIONS: dict[UserStatus, frozenset[UserStatus]] = {
     UserStatus.PENDING_VERIFICATION: frozenset(
-        {UserStatus.ACTIVE, UserStatus.PENDING_KYC, UserStatus.SUSPENDED},
+        {
+            UserStatus.ACTIVE,
+            UserStatus.PENDING_KYC,
+            UserStatus.SUSPENDED,
+            UserStatus.DELETION_PENDING,
+        },
     ),
-    UserStatus.PENDING_KYC: frozenset({UserStatus.ACTIVE, UserStatus.SUSPENDED}),
-    UserStatus.ACTIVE: frozenset({UserStatus.SUSPENDED}),
+    UserStatus.PENDING_KYC: frozenset(
+        {UserStatus.ACTIVE, UserStatus.SUSPENDED, UserStatus.DELETION_PENDING},
+    ),
+    UserStatus.ACTIVE: frozenset({UserStatus.SUSPENDED, UserStatus.DELETION_PENDING}),
     UserStatus.SUSPENDED: frozenset({UserStatus.ACTIVE}),
+    UserStatus.DELETION_PENDING: frozenset(
+        {UserStatus.ACTIVE, UserStatus.PENDING_KYC, UserStatus.DELETED},
+    ),
+    UserStatus.DELETED: frozenset(),
 }
 
 #: Statuses in which a person may still hold a session on DiddiFreeID itself.
@@ -93,18 +120,26 @@ def can_transition(current: UserStatus, target: UserStatus) -> bool:
 @dataclass
 class User:
     id: UUID
-    phone: str
+    phone: str | None
+    email: str | None = None
     role: UserRole = UserRole.USER
     status: UserStatus = UserStatus.PENDING_VERIFICATION
     full_name: str | None = None
+    language: UserLanguage = UserLanguage.FR
+    photo_url: str | None = None
     password_hash: str | None = None  # NULL when the account is OTP-only
     #: Role awaiting a KYC decision. Set when a module requests a promotion to a
     #: role in `KYC_REQUIRED_ROLES`, cleared when the decision lands. The user
     #: keeps `role` — and therefore every permission they already had — until
     #: approval.
     requested_role: UserRole | None = None
+    is_review_account: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    deletion_requested_at: datetime | None = None
+    deletion_scheduled_for: datetime | None = None
+    deletion_previous_status: UserStatus | None = None
+    deleted_at: datetime | None = None
 
     @staticmethod
     def new_id() -> UUID:
@@ -124,7 +159,8 @@ class OtpCode:
     """
 
     id: UUID
-    phone: str
+    phone: str | None
+    email: str | None
     code_hash: str
     expires_at: datetime
     created_at: datetime
@@ -206,6 +242,24 @@ class UserRoleChange:
     requested_role: UserRole | None = None
     reason: str | None = None
     changed_by: UUID | None = None
+
+    @staticmethod
+    def new_id() -> UUID:
+        return uuid4()
+
+
+@dataclass
+class UserReviewAccountChange:
+    """Audit row for the isolated Google Play review-account flag."""
+
+    id: UUID
+    user_id: UUID
+    from_is_review_account: bool
+    to_is_review_account: bool
+    reason: str
+    changed_at: datetime
+    changed_by: UUID | None = None
+    changed_by_client_id: str | None = None
 
     @staticmethod
     def new_id() -> UUID:

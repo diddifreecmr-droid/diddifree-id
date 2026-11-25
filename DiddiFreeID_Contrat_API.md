@@ -5,14 +5,24 @@ Frontend/Mobile.
 **Base URL (dev) :** `https://api-dev.diddifree.app/identity/v1`
 **Format :** JSON exclusivement · `Content-Type: application/json`
 **Référence architecture :** `DiddiFreeID_Architecture.md`
-**Version : 1.0** — 2026-07-29
+**Version : 2.3** — 2026-10-15
 **Historique :**
 - *Design* — contrat initial, avant implémentation.
 - **v1.0 (2026-07-29)** — première version livrée. **Aucune rupture** par rapport au contrat de design :
   tout ce qui y était publié se comporte comme annoncé. Les mentions « **Implémentation :** » signalent
   soit des routes nouvelles, soit des champs additifs, soit des précisions sur des cas que le design
   laissait sans réponse.
-- *v2 — à venir.* Voir la section 5.
+- **v2.0 (2026-08-05)** — ajout du canal OTP e-mail alternatif, du champ e-mail dans le profil et de
+  la confirmation du canal effectif dans la réponse OTP. Cette évolution est additive : les routes
+  restent sous `/identity/v1` jusqu'à l'introduction d'une rupture incompatible.
+- **v2.1 (2026-08-27)** — ajout du canal OTP WhatsApp via Evolution API pour le staging. Cette
+  évolution est additive : le canal officiel WhatsApp pourra remplacer Evolution API sans changer
+  le contrat frontend.
+- **v2.2 (2026-10-15)** — ajout de la liaison vérifiée d'un email ou d'un téléphone à un compte
+  existant, de l'unicité email insensible à la casse et de la confirmation du canal SMS dans le
+  contrat OTP. Cette évolution est additive : les routes de login existantes restent inchangées.
+- **v2.3 (2026-10-15)** — ajout de la suppression réversible de compte, de la restauration par
+  vérification OTP pendant 30 jours et de l'anonymisation finale idempotente.
 
 Ce document est un **contrat**. Toute évolution incompatible sera versionnée (`/v2`), jamais poussée en
 silence sur `/v1`. Les conventions (format d'erreur, codes HTTP, pagination) reprennent volontairement
@@ -20,6 +30,13 @@ celles déjà en usage côté DiddiGo, pour que les équipes n'aient qu'un seul 
 l'écosystème.
 
 ---
+
+> **Mise à jour d'architecture (2026-08-04)** : DiddiFreeID ne possède que les
+> rôles globaux de plateforme (`user`, `admin`). Les rôles métier comme
+> `driver`, `merchant`, `investor` ou `campaign_owner` appartiennent à leurs
+> modules. Les anciennes sections KYC/role métier sont conservées comme
+> historique de migration ; une nouvelle demande de rôle métier répond
+> `409 ROLE_OWNED_BY_MODULE`.
 
 ## 0. Conventions générales
 
@@ -62,13 +79,14 @@ route qu'on tape le plus pendant une intégration.
 |---|---|
 | `200` | Succès |
 | `201` | Ressource créée |
+| `202` | Demande acceptée, traitement différé |
 | `204` | Succès, sans contenu |
 | `400` | Requête malformée |
 | `401` | Non authentifié / token invalide, expiré, ou révoqué |
 | `403` | Authentifié mais non autorisé (ex. route admin appelée par un `role=user`, ou compte suspendu) |
 | `404` | Ressource inexistante |
 | `409` | Conflit d'état (ex. téléphone déjà enregistré, transition de statut impossible) |
-| `410` | Ressource expirée et définitivement inutilisable (code OTP périmé) |
+| `410` | Ressource expirée et définitivement inutilisable (code OTP périmé ou compte supprimé) |
 | `422` | Validation de champs échouée |
 | `429` | Trop de requêtes (OTP demandé trop souvent, trop de tentatives) |
 | `500` | Erreur serveur |
@@ -95,10 +113,16 @@ là où la RFC 8615 le place et où toute bibliothèque JWT standard le cherche 
 
 ### `POST /auth/register`
 
+`phone` ou `email` est obligatoire. Les deux peuvent être fournis pour un
+compte joignable par les deux identifiants, mais au moins un doit être présent.
+L'e-mail permet aussi un login OTP sans numéro de téléphone.
+
 **Requête**
 ```json
-{ "phone": "+2250700000000", "full_name": "Awa Koné" }
+{ "phone": "+2250700000000", "email": "awa@example.com", "full_name": "Awa Koné" }
 ```
+
+Compte e-mail uniquement : `{ "email": "awa@example.com", "full_name": "Awa Koné" }`.
 Pas de champ `role` ici, contrairement à DiddiGo — le rôle par défaut est `"user"`. Un module (ex. Ride)
 qui a besoin qu'un utilisateur devienne `driver` appelle `PATCH /users/{id}/role` (section 3) après
 inscription, une fois son propre processus de qualification (permis, véhicule...) validé. DiddiFreeID ne
@@ -110,33 +134,69 @@ sa propre logique de qualification et déclenche le changement de rôle via l'AP
 { "user_id": "b3e1...", "phone": "+2250700000000", "status": "pending_verification" }
 ```
 
-**Erreurs** : `422` (`INVALID_PHONE_FORMAT`), `409` (`PHONE_ALREADY_REGISTERED`)
+Avec une inscription e-mail uniquement, `phone` vaut `null`.
+
+**Erreurs** : `422` (`INVALID_PHONE_FORMAT` ou `IDENTIFIER_REQUIRED`), `409`
+(`PHONE_ALREADY_REGISTERED` ou `EMAIL_ALREADY_REGISTERED`)
 
 ---
 
 ### `POST /auth/otp/request`
 
-**Requête** : `{ "phone": "+2250700000000" }`
+**Identifiant** : fournir exactement un `phone` ou un `email`. Le canal
+`email` peut donc être utilisé sans numéro. `channel` accepte `sms`, `email`,
+`telegram` ou `whatsapp`. Le frontend
+devrait l'envoyer explicitement pour que le choix de livraison soit clair.
+S'il est absent, `OTP_PROVIDER` choisit le fournisseur configuré. Le canal
+`email` nécessite une adresse e-mail enregistrée sur le compte. Quel que soit
+le canal, `OTP_LOG_PLAINTEXT=true` écrit le code et son destinataire dans les
+logs de diagnostic; `false` les masque.
 
-**Réponse `200`** : `{ "expires_in_seconds": 300, "retry_after_seconds": 60 }`
+**Requête e-mail avec téléphone** : `{ "phone": "+2250700000000", "channel": "email" }`
 
-**Erreurs** : `429` (`OTP_RATE_LIMITED`, avec `details.retry_after_seconds`)
+**Requête e-mail sans téléphone** : `{ "email": "awa@example.com", "channel": "email" }`
 
-**Implémentation — la réponse est identique pour un numéro connu et un numéro inconnu.** Aucun SMS n'est envoyé dans
-le second cas, mais le corps, le code HTTP et le cooldown sont les mêmes. Toute différence ferait de cette
-route un oracle permettant de savoir si une personne donnée est cliente de DiddiFree. Un appelant qui
-demande un code pour un numéro inconnu n'en reçoit simplement jamais, et `verify` lui répondra le
-`400 OTP_INVALID` habituel.
+**Requête Telegram** : `{ "phone": "+2250700000000", "channel": "telegram" }`
 
-**Implémentation — deux limites indépendantes** : une par numéro (le `retry_after_seconds` annoncé) et une par
-adresse IP, plus permissive, qui existe pour arrêter un script balayant une plage de numéros depuis une
+**Requête WhatsApp** : `{ "phone": "+2250700000000", "channel": "whatsapp" }`
+
+**Réponse `200`** :
+`{ "expires_in_seconds": 300, "retry_after_seconds": 60, "channel": "email" }`
+
+`channel` vaut `sms`, `email`, `telegram`, `whatsapp` ou `logging` (ce dernier uniquement pour le
+mode développement/staging sans transport configuré).
+
+**Comptes Google Play Review.** Un compte explicitement marqué `is_review_account=true` peut utiliser le
+mode contrôlé `REVIEW_STATIC_OTP_ENABLED=true`. Dans ce seul cas, la réponse retourne
+`{ "expires_in_seconds": 0, "channel": "review" }` : aucun OTP n'est créé, envoyé ou journalisé. Le
+frontend conserve son écran de saisie à six chiffres et invite le testeur à saisir le code fourni avec son
+compte. Le code est unique par `user_id`, configuré dans le secret Portainer
+`REVIEW_STATIC_OTP_CODES_JSON`, jamais dans Git ni la base de données.
+Un compte Review est créé par l'opération contrôlée
+`python scripts/create_review_account.py --email ...`; cette commande active le
+compte, marque `is_review_account=true` et affiche seulement son `user_id`.
+
+**Erreurs** : `409` (`EMAIL_NOT_CONFIGURED` si un compte téléphone n'a pas
+d'e-mail), `422` (`SMS_REQUIRES_PHONE`, `TELEGRAM_REQUIRES_PHONE` ou `WHATSAPP_REQUIRES_PHONE`), `429` (`OTP_RATE_LIMITED`, avec
+`details.retry_after_seconds`)
+
+**Implémentation — la réponse est identique pour un identifiant connu et un identifiant inconnu.** Aucun OTP n'est
+envoyé dans le second cas, mais le corps, le code HTTP et le cooldown sont les mêmes. Toute différence ferait de
+cette route un oracle permettant de savoir si une personne donnée est cliente de DiddiFree. Un appelant qui demande
+un code pour un identifiant inconnu n'en reçoit simplement jamais, et `verify` lui répondra le `400 OTP_INVALID`
+habituel.
+
+**Implémentation — deux limites indépendantes** : une par identifiant (le `retry_after_seconds` annoncé) et une par
+adresse IP, plus permissive, qui existe pour arrêter un script balayant une plage d'identifiants depuis une
 même machine. Les deux répondent `429 OTP_RATE_LIMITED`.
 
 ---
 
 ### `POST /auth/otp/verify`
 
-**Requête** : `{ "phone": "+2250700000000", "code": "482913" }`
+**Requête téléphone** : `{ "phone": "+2250700000000", "code": "482913" }`
+
+**Requête e-mail** : `{ "email": "awa@example.com", "code": "482913" }`
 
 **Implémentation :** champ optionnel `device_info` (200 caractères max), conservé avec le refresh token pour permettre
 à l'utilisateur d'identifier ses sessions.
@@ -166,12 +226,16 @@ même machine. Les deux répondent `429 OTP_RATE_LIMITED`.
   dernier essai.
 - Une fois le plafond de tentatives atteint, le code est **consommé** : même le bon code ne fonctionne
   plus, il faut en redemander un. Sans cela, le plafond ne ferait que ralentir une attaque.
-- `404 USER_NOT_FOUND` si aucun compte n'existe pour ce numéro. La création de compte appartient à
+- `404 USER_NOT_FOUND` si aucun compte n'existe pour cet identifiant. La création de compte appartient à
   `/auth/register` : en créer un ici contournerait le `409` sur doublon et produirait des comptes sans
   `full_name`.
 - `403 USER_SUSPENDED` si le compte est suspendu.
 - Si un rôle soumis à KYC a été demandé avant cette première vérification, le compte passe en
   `pending_kyc` au lieu d'`active` (voir section 3, `PATCH /users/{id}/role`).
+- Un compte Review configuré valide son code fixe uniquement si son marqueur serveur est actif. Il n'y a pas
+  d'expiration ni de consommation du code, mais cinq échecs bloquent ce seul compte pendant 900 secondes par
+  défaut (`429 REVIEW_OTP_TOO_MANY_ATTEMPTS`). Redis indisponible répond `503 REVIEW_OTP_RATE_LIMIT_UNAVAILABLE` :
+  ce chemin échoue volontairement de façon sûre.
 
 ---
 
@@ -232,6 +296,7 @@ bon comportement de cache sans code particulier.
   "sub": "b3e1...",
   "role": "user",
   "status": "active",
+  "is_review_account": false,
   "iss": "diddifree-id",
   "iat": 1753700000,
   "exp": 1753700900
@@ -243,8 +308,14 @@ token (max 15 min de délai, acceptable ; sinon voir `user.suspended` en section
 immédiate).
 
 **Implémentation :** le claim `iss` a été ajouté et **doit être vérifié** (`diddifree-id`). Valeurs possibles de
-`status` : `pending_verification`, `pending_kyc`, `active`, `suspended`. La règle ci-dessus est
+`status` : `pending_verification`, `pending_kyc`, `active`, `suspended`. Les statuts `deletion_pending`
+et `deleted` ne sont jamais émis dans un nouveau JWT. La règle ci-dessus est
 inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc un module refuse d'agir.
+
+`is_review_account` est un booléen strict, toujours présent dans les nouveaux tokens. Les anciens tokens
+qui ne le contiennent pas doivent être interprétés comme `false` pendant le déploiement progressif. Une
+valeur autre que `true` ou `false` rend le token invalide. Ce claim est un signal backend pour isoler les
+parcours Google Play Review ; il ne doit pas être affiché ni contrôlé par le frontend.
 
 **Comportement attendu côté module en cas de token expiré** : renvoyer `401` avec
 `error.code = "TOKEN_EXPIRED"` à son propre client — c'est au frontend d'appeler
@@ -253,6 +324,11 @@ inchangée et couvre le nouveau statut : `pending_kyc` n'est pas `active`, donc 
 ---
 
 ### `GET /users/me`
+
+Le profil contient également `email`. Les champs `phone` et `email` sont des
+contacts vérifiés et sont en lecture seule sur `GET /users/me` et `PATCH /users/me`.
+Pour ajouter un contact à un compte existant, utiliser les routes de liaison OTP
+ci-dessous.
 
 Pour les cas où un module a besoin du profil complet (ex. afficher `full_name` sur un reçu DiddiPay) et
 ne veut pas le maintenir en cache lui-même.
@@ -264,15 +340,23 @@ ne veut pas le maintenir en cache lui-même.
 {
   "id": "b3e1...",
   "phone": "+2250700000000",
+  "email": "awa@example.com",
   "full_name": "Awa Koné",
+  "language": "fr",
+  "photo_url": null,
   "role": "user",
   "status": "active",
-  "requested_role": null
+  "requested_role": null,
+  "created_at": "2026-09-21T13:00:00Z"
 }
 ```
 
 **Implémentation — `requested_role`** est un champ **additif** : il porte le rôle en attente de décision KYC, ou
 `null`. Un consommateur qui lit uniquement les champs de la v1 n'est pas affecté.
+
+**`created_at`** (ticket 029, additif) : date de création du compte, ISO 8601 en UTC avec le suffixe `Z`.
+Même forme sur `GET /users/me`, `GET /users/{user_id}` et partout où le profil est renvoyé. C'est la date
+de création du **compte DiddiFreeID**, pas celle d'une capacité Pro (voir `created_at` de `GET /pro/me`).
 
 **Erreurs** : `401` (`TOKEN_MISSING`, `TOKEN_EXPIRED`, `TOKEN_INVALID`), `403` (`USER_SUSPENDED`,
 `USER_NOT_VERIFIED`)
@@ -282,6 +366,21 @@ voir où en est sa demande.
 
 ### `PATCH /users/me`
 
+Le profil global contient aussi `language` (`fr` ou `en`, `fr` par défaut) et
+`photo_url` (lien vers la photo, sans upload géré par DiddiFreeID pour le
+moment). Ces champs peuvent être modifiés avec le nom.
+
+```json
+{
+  "full_name": "Awa Koné-Traoré",
+  "language": "en",
+  "photo_url": "https://cdn.example.com/profile.jpg"
+}
+```
+
+Le téléphone et l'email ne peuvent pas être modifiés directement par ce PATCH.
+Une tentative de changement d'email répond `409 EMAIL_VERIFICATION_REQUIRED`.
+
 **Implémentation — nouvelle route.** Modification du profil par l'utilisateur lui-même.
 
 **Requête** : `{ "full_name": "Awa Koné-Traoré" }`
@@ -289,14 +388,138 @@ voir où en est sa demande.
 réellement changé, auquel cas aucun événement ne part : les abonnés purgent leur cache sur `user.updated`,
 et une modification à vide n'a pas à faire tomber les caches de tout l'écosystème.
 
+### `DELETE /users/me`
+
+Demande authentifiée de suppression du compte. DiddiFreeID passe le compte en
+`deletion_pending`, révoque tous les refresh tokens et conserve une période de
+restauration de 30 jours.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Réponse `202`** :
+```json
+{
+  "status": "deletion_pending",
+  "scheduled_for": "2026-11-14T14:20:00Z",
+  "restore_until": "2026-11-14T14:20:00Z"
+}
+```
+
+La route est idempotente pendant la période de grâce : elle retourne la même
+échéance sans la repousser. Pour restaurer le compte, le frontend redemande un
+OTP avec `POST /auth/otp/request`, puis appelle `POST /auth/otp/verify` avec le
+même contact. Une vérification réussie dans les 30 jours restaure le statut
+`active` ou `pending_kyc` précédent et émet `user.deletion_cancelled`.
+
+Après l'échéance, le job `account-purger` passe le compte en `deleted`, conserve
+son UUID et ses historiques, supprime les sessions, capabilities et activité,
+et anonymise les contacts, le nom, la photo, Telegram et le mot de passe. Il
+émet `user.deleted` pour que chaque module supprime ses propres données. Un
+compte définitivement supprimé répond `410 ACCOUNT_DELETED` et ne reçoit plus
+d'OTP.
+
+### `POST /users/me/contact/request`
+
+Route authentifiée pour demander l'ajout d'un contact à la session courante.
+Fournir exactement un `phone` ou un `email`. Le `channel` est optionnel, mais
+le frontend devrait le fournir explicitement : `email` pour un nouvel email,
+et `sms`, `telegram` ou `whatsapp` pour un nouveau téléphone.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Requête email** :
+```json
+{
+  "email": "awa.new@example.com",
+  "channel": "email"
+}
+```
+
+**Requête téléphone** :
+```json
+{
+  "phone": "+2250700000000",
+  "channel": "sms"
+}
+```
+
+**Réponse `200`** :
+```json
+{
+  "contact_type": "email",
+  "channel": "email",
+  "expires_in_seconds": 300,
+  "retry_after_seconds": 60
+}
+```
+
+Le challenge est enregistré avant l'envoi et ne contient jamais le code en
+clair. Le code reste soumis aux mêmes limites de tentatives, d'expiration et
+de journalisation que les OTP de login.
+
+**Erreurs** : `409` (`CONTACT_ALREADY_LINKED`, `PHONE_ALREADY_REGISTERED` ou
+`EMAIL_ALREADY_REGISTERED`), `422` (`IDENTIFIER_REQUIRED`,
+`EMAIL_CONTACT_REQUIRES_EMAIL_CHANNEL`, `PHONE_CONTACT_REQUIRES_PHONE_CHANNEL`
+ou une erreur de format téléphone), `429` (`OTP_RATE_LIMITED`).
+
+### `POST /users/me/contact/verify`
+
+Vérifie le code reçu et attache le contact au **même `user_id`**. Fournir
+exactement le même `phone` ou `email` que dans la demande précédente.
+
+**Header requis** : `Authorization: Bearer <access_token>`
+
+**Requête** :
+```json
+{
+  "email": "awa.new@example.com",
+  "code": "482913"
+}
+```
+
+**Réponse `200`** : le profil complet mis à jour.
+
+**Erreurs** : `400 CONTACT_OTP_INVALID`, `409` (`PHONE_ALREADY_REGISTERED`
+ou `EMAIL_ALREADY_REGISTERED`), `410 CONTACT_OTP_EXPIRED`, `429
+CONTACT_OTP_TOO_MANY_ATTEMPTS`.
+
+Un contact ne peut appartenir qu'à un seul compte. L'email est normalisé en
+minuscules et protégé en PostgreSQL par un index unique sur `lower(email)`.
+
 ### `GET /users/{user_id}`
 
 Réservé aux appels **service-à-service** (pas exposé au frontend directement) — un module backend qui a
 besoin du profil d'un utilisateur autre que celui du token courant (ex. Fund affichant le nom d'un
 porteur de campagne à un investisseur).
 
-**Implémentation — le mécanisme d'authentification, laissé ouvert en v1, est implémenté sous ses deux formes**, en
-attendant l'arbitrage réseau définitif avec l'équipe Infra. Chacune se désactive par configuration :
+**Mécanisme recommandé pour les nouveaux consommateurs :** client credentials via
+`POST /auth/service/token` (URL complète : `/identity/v1/auth/service/token`). La
+réponse contient un JWT RS256 court, limité par `aud` et `scope`.
+
+La requête est `application/x-www-form-urlencoded` :
+
+```text
+grant_type=client_credentials
+X-Client-ID: pilotage-staging-diddifreeid
+client_id=pilotage-staging-diddifreeid
+client_secret=<secret Portainer>
+audience=diddifree-id
+scope=profile:read
+```
+
+Le header `X-Client-ID` est obligatoire et doit correspondre à `client_id`.
+Pilotage utilise un client séparé pour chaque cible :
+`pilotage-staging-diddifreeid` pour `audience=diddifree-id` et
+`pilotage-staging-diddigo` pour `audience=diddigo`, avec le scope
+`ride-summary:read`.
+
+Le token contient notamment `role=service`, `status=active`,
+`token_type=service`, `client_id`, `aud`, `scope`, `jti`, `iat` et `exp`. La durée par défaut est de 600 secondes
+(`SERVICE_TOKEN_LIFETIME_SECONDS`). Le secret est créé avec
+`scripts/create_service_client.py`, hashé en base et affiché une seule fois.
+
+**Compatibilité de migration :** les deux formes historiques restent acceptées
+sur les routes existantes, en attendant leur migration :
 
 1. **En-tête `X-Service-Key`**, comparé à la liste `SERVICE_API_KEYS`.
 2. **Access token portant `role=service`**, émis hors ligne par
@@ -304,11 +527,97 @@ attendant l'arbitrage réseau définitif avec l'équipe Infra. Chacune se désac
    ne sont pas révocables individuellement : leur expiration est le seul mécanisme qui les retire de la
    circulation, donc durée courte et réémission planifiée.
 
+Les nouveaux consommateurs doivent utiliser le endpoint client credentials et
+demander l'audience du service appelé (`diddifree-id`, `diddigo`, `diddifood`,
+etc.), puis envoyer :
+
+```http
+Authorization: Bearer <service_jwt>
+X-Client-ID: <client_id>
+```
+
+Le service appelé vérifie `iss`, `kid`, signature, `exp`, `aud`, `scope`,
+`token_type=service`, `status=active` et la correspondance entre
+`X-Client-ID` et `client_id`. `X-Service-Key` reste réservé aux intégrations
+existantes pendant la migration et n'est pas requis avec un nouveau JWT. Les
+scopes des routes existantes sont `profile:read`, `users:backfill:read` et
+`role:write`.
+
+**Consommateurs connus avec `profile:read`** : DiddiAdmin, et DiddiRewards (client `diddirewards`, ticket
+029) qui lit `created_at` et `status` pour ses campagnes « inscrits avant une date » et « les X premiers ».
+DiddiRewards ne doit ni stocker ni journaliser `phone`, `email` ni `full_name`.
+
+La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
+valide jusqu'à son expiration, au maximum 600 secondes par défaut.
+
 Un token d'administrateur est également accepté sur cette route.
+
+### `GET /pro/me`
+
+Façade de lecture pour DiddiFree Pro. Elle expose une projection globale des
+capacités métier sans ajouter de rôle métier au JWT utilisateur.
+
+```json
+{
+  "user_id": "uuid",
+  "calculated_at": "2026-09-21T14:00:00Z",
+  "capabilities": [
+    {
+      "service": "diddisend",
+      "type": "courier",
+      "access_status": "enabled",
+      "operational_status": "vehicle_missing",
+      "status_source": "diddisend",
+      "actions": ["complete_vehicle"],
+      "projection_version": 2,
+      "last_event_id": "evt-123",
+      "updated_at": "2026-09-21T13:58:00Z",
+      "created_at": "2026-09-21T13:00:00Z",
+      "freshness": "fresh"
+    }
+  ]
+}
+```
+
+`access_status` appartient à DiddiFreeID (`requested`, `enabled`,
+`suspended`, `revoked`). `operational_status` appartient au module indiqué par
+`status_source`. `freshness=stale` signale une projection plus ancienne que la
+fenêtre configurée ; cela ne donne ni ne retire à lui seul une permission
+métier.
+
+### `POST /pro/capabilities/{service}/{type}/request`
+
+Demande utilisateur idempotente d'activation d'une capacité. Elle crée ou
+retourne une projection `access_status=requested`.
+
+### `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/status`
+
+Mise à jour S2S de l'état opérationnel par le module propriétaire. Elle exige
+un JWT service visant `aud=diddifree-id`, le scope `capabilities:write`,
+`X-Client-ID` correspondant au token et un service JWT identique au segment
+`{service}`. Les versions anciennes sont ignorées ; une même version avec un
+autre événement est rejetée en conflit.
+
+### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
+
+Mise à jour administrateur de `access_status`. Cette route ne modifie pas
+`operational_status`, qui reste la propriété du module métier.
 
 **Réponse `200`** : même format que `/users/me`.
 **Erreurs** : `404` (`USER_NOT_FOUND`), `401` (`SERVICE_KEY_INVALID`, `TOKEN_MISSING`),
 `403` (`FORBIDDEN_ROLE` — un `role=user` ordinaire n'a rien à faire ici)
+
+Le Backoffice peut aussi appeler cette route avec un JWT service `client_credentials`
+portant `service=backoffice`, `aud=diddifree-id`, `X-Client-ID` et le scope
+`capabilities:access:write`. Ce client ne peut modifier que `access_status` ; le module
+propriétaire reste responsable de `operational_status`.
+
+### `GET /admin/users/{user_id}/capabilities`
+
+Lecture administrative des capabilities d'un utilisateur précis. Elle est réservée à un
+admin actif ou au client technique `backoffice` avec le scope `capabilities:read`.
+Elle retourne le même format que `/pro/me`, mais elle n'utilise pas l'identité de la
+session courante. La liste globale des utilisateurs reste `GET /admin/users`.
 
 ### `GET /users/backfill`
 
@@ -331,6 +640,12 @@ déjà.
 ---
 
 ## 3. Administration (réservé `role=admin`)
+
+Le premier compte administrateur est un bootstrap d'exploitation, pas une
+route HTTP. Il est créé avec `scripts/create_admin.py` depuis le conteneur
+backend ou un environnement local relié à la base et aux clés RS256. Le script
+émet ensuite un access token `role=admin` à durée courte ; il ne stocke jamais
+le token.
 
 ### `GET /admin/users?role=driver&status=active&page=1&page_size=20`
 
@@ -414,6 +729,25 @@ d'événements réagissent sans attendre l'expiration du JWT en cours).
   modules pour la revue d'un seul.
 - Une réactivation émet `user.updated` (voir section 4).
 
+### `PATCH /admin/users/{user_id}/review-account`
+
+Active ou désactive le marqueur d'un compte Google Play Review.
+
+**Requête** : `{ "is_review_account": true, "reason": "Google Play review account" }`
+**Réponse `200`** : `{ "id": "...", "is_review_account": true }`
+
+Autorisation : administrateur humain, ou token `client_credentials` du service `backoffice`, avec
+`aud=diddifree-id`, `X-Client-ID` identique au claim `client_id` et scope `review-accounts:write`.
+
+**Implémentation :**
+- la décision est enregistrée dans `identity.user_review_account_history` avec le motif et l'acteur humain
+  ou le `client_id` Backoffice ;
+- tous les refresh tokens sont immédiatement révoqués ; le JWT déjà présenté reste valable jusqu'à son
+  expiration normale (15 minutes maximum) ;
+- l'événement `user.review_account_changed` est publié afin que DiddiGo et les autres modules rafraîchissent
+  leur projection locale ;
+- le marqueur n'est pas inclus dans `GET /users/me`, `PATCH /users/me` ou la réponse OTP.
+
 ---
 
 ## 4. Événements internes (bus, pas HTTP)
@@ -424,7 +758,7 @@ Format d'un événement publié par DiddiFreeID :
 {
   "event": "user.registered",
   "user_id": "b3e1...",
-  "phone": "+2250700000000",
+  "phone": null,
   "role": "user",
   "at": "2026-07-28T10:15:00Z"
 }
@@ -436,12 +770,12 @@ Format d'un événement publié par DiddiFreeID :
 | `user.updated` | `changed_fields`, et `old_status`/`new_status`/`reason` pour une réactivation | Invalider tout cache local de profil pour ce `user_id` |
 | `user.role_changed` | `old_role`, `new_role` | Ride : activer les fonctionnalités chauffeur. Skill : mettre à jour le Talent Pool. |
 | `user.suspended` | `old_status`, `new_status`, `reason` | Wallet : geler les transactions sortantes. Ride : désactiver la disponibilité chauffeur. |
+| `user.review_account_changed` | `old_is_review_account`, `new_is_review_account` | DiddiGo : mettre à jour l'isolation locale du compte, chauffeur et matching Review. |
 
-**Implémentation — il n'y a toujours que ces quatre noms, et c'est délibéré.** Une réactivation de compte et
-l'ouverture d'un dossier KYC passent toutes deux par `user.updated`. Inventer `user.reactivated` ou
-`user.kyc_requested` reviendrait à publier des événements auxquels personne n'est abonné, donc des
-notifications silencieusement perdues. Ce que ces cas ont besoin de dire — « votre copie du profil est
-périmée » — est exactement ce que `user.updated` signifie déjà.
+Une réactivation de compte et l'ouverture d'un dossier KYC passent toujours par `user.updated` : inventer
+`user.reactivated` ou `user.kyc_requested` reviendrait à publier des événements auxquels personne n'est
+abonné. `user.review_account_changed` est volontairement distinct, car les modules doivent modifier une
+projection d'isolation métier et non simplement invalider un cache de profil.
 
 ### Le transport : Redis Streams
 
@@ -486,7 +820,7 @@ while True:
 
 ---
 
-## 5. Ce qui n'est volontairement pas encore dans ce contrat — cible v2
+## 5. Ce qui n'est volontairement pas encore dans ce contrat — futures versions
 
 Rien de ce qui suit ne bloque un module qui intègre la v1.0. Le tableau détaillé des déclencheurs est en
 section 10 de l'architecture.
@@ -500,6 +834,9 @@ section 10 de l'architecture.
 - Endpoints de gestion fine des rôles multiples (un utilisateur à la fois `driver` et `merchant`) — le
   modèle actuel suppose un rôle principal unique par utilisateur ; à revoir si le besoin apparaît. À
   noter : le portillon KYC de la v1.0 raisonne lui aussi sur un rôle demandé à la fois.
+- Fusion de comptes — volontairement hors MVP. Un email ou un téléphone déjà lié à un autre compte répond
+  `409 EMAIL_ALREADY_REGISTERED` ou `409 PHONE_ALREADY_REGISTERED`. Une future fusion devra authentifier
+  explicitement les deux comptes et coordonner la migration des références métier dans chaque module.
 - KYC documentaire (upload de pièce d'identité) — probablement un sous-module dédié plutôt qu'un champ de
   plus sur `users`, à spécifier séparément. **Implémentation :** le *portillon* (demande, file d'instruction,
   décision, audit) est en place ; ce qui reste à spécifier est la collecte et le stockage des pièces.

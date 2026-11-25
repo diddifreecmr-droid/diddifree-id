@@ -1,0 +1,147 @@
+# Brief DiddiFreeID
+
+## Rôle du service
+
+DiddiFreeID est le fournisseur central d'identité de DiddiFree. Il gère :
+
+- l'inscription et la connexion par OTP via téléphone ou e-mail ;
+- l'envoi OTP via logging, e-mail SMTP, SMS (Yellika ou Senndo), Telegram ou
+  WhatsApp Evolution API ;
+- les tokens JWT RS256 et le JWKS ;
+- le profil partagé : numéro éventuellement absent, e-mail, nom, langue `fr|en` et `photo_url` ;
+- les statuts globaux `pending_verification`, `active`, `suspended`, `deletion_pending` et `deleted` ;
+- les rôles globaux de plateforme : `user` et `admin` ;
+- les événements d'identité et la lecture de profil service-to-service.
+
+Chaque module vérifie les JWT localement avec le JWKS. Il ne doit pas appeler
+Auth à chaque requête simplement pour vérifier un token.
+
+Pour les appels backend, les nouveaux clients utilisent
+`POST /identity/v1/auth/service/token` avec `client_credentials` et
+`audience=diddifree-id`. Le client est
+enregistré côté DiddiFreeID avec un secret hashé, une audience et des scopes
+autorisés. Le JWT service est court (600 secondes par défaut) ; le consommateur
+vérifie localement la signature via JWKS, `iss`, `exp`, `aud` et les scopes.
+Les appels utilisent aussi `X-Client-ID`, qui doit correspondre au claim
+`client_id`. `X-Service-Key` reste uniquement pour la compatibilité legacy.
+
+## Rôles métier
+
+Les rôles métier ne sont pas centralisés dans Auth :
+
+- DiddiGo possède `driver_profiles` et décide si un utilisateur peut conduire ;
+- DiddiPay possède ses profils et permissions de paiement ;
+- DiddiFund possède ses rôles d'investissement et de campagne ;
+- les autres modules gardent leurs propres rôles métier.
+
+Les anciennes valeurs `driver` et `merchant` peuvent encore être lues pendant
+la migration des anciennes lignes, mais Auth refuse désormais de les attribuer
+avec `409 ROLE_OWNED_BY_MODULE`. Le rôle métier ne doit pas être ajouté au JWT
+central. Le module propriétaire peut publier un événement métier ou fournir un
+endpoint interne si un autre module doit connaître cette qualification.
+
+## Profil et identifiants
+
+Un compte peut être créé et connecté avec un numéro, un e-mail, ou les deux.
+Le frontend doit envoyer exactement un identifiant dans chaque demande et
+vérification OTP. Le canal e-mail permet le login sans numéro ; Telegram et
+WhatsApp restent réservés aux demandes qui fournissent un numéro de téléphone.
+
+`PATCH /identity/v1/users/me` permet de modifier le nom, la langue et le lien
+de photo. Une photo peut être supprimée avec `photo_url: null`. Les contacts
+`phone` et `email` sont vérifiés et ne sont pas modifiables directement par ce
+PATCH.
+
+Pour ajouter un contact à un compte authentifié, le frontend appelle
+`POST /identity/v1/users/me/contact/request`, puis
+`POST /identity/v1/users/me/contact/verify` avec le code reçu. Le nouveau
+contact est attaché au même `user_id` uniquement après vérification OTP. Un
+email ou un téléphone déjà utilisé par un autre compte est refusé. Les emails
+sont normalisés en minuscules et protégés par une unicité PostgreSQL
+insensible à la casse.
+
+## Suppression de compte MVP
+
+`DELETE /identity/v1/users/me` demande la suppression et révoque les sessions.
+Le compte reste restaurable pendant 30 jours : le frontend réutilise le login
+OTP habituel pour annuler la suppression. Après ce délai, le service
+`account-purger` anonymise les données personnelles, conserve l'UUID et les
+historiques, puis publie `user.deleted` pour les modules métier.
+
+## OTP Telegram staging
+
+> **Désactivé le 2026-11-18.** Le bot est commenté dans
+> `identity_app/core/lifespan.py` ; le token précédent a fuité dans les logs et
+> doit être révoqué avant réactivation. Le reste de cette section décrit le
+> fonctionnement lorsqu'il sera réactivé.
+
+Le transport peut être activé dans Portainer avec :
+
+```text
+OTP_PROVIDER=telegram
+TELEGRAM_BOT_TOKEN=<secret fourni par Portainer>
+OTP_LOG_PLAINTEXT=true
+```
+
+Pour envoyer par e-mail, renseigner `SMTP_PASSWORD` dans Portainer et utiliser
+`OTP_PROVIDER=email`, ou demander le canal dans la requête OTP :
+
+```json
+{
+  "phone": "+2250700000000",
+  "channel": "email"
+}
+```
+
+Pour un compte sans téléphone, envoyer à la place :
+
+```json
+{
+  "email": "user@example.com",
+  "channel": "email"
+}
+```
+
+L'envoi utilise Zoho SMTP avec `direction.technique@diddifree.com` comme compte
+d'authentification et `no-reply@diddifree.com` comme expéditeur. Le mot de passe
+reste uniquement dans Portainer. Zoho doit autoriser l'envoi avec cette adresse
+via la permission `Send As`.
+
+Lorsque `OTP_LOG_PLAINTEXT=true`, le code et son destinataire sont visibles
+dans les logs pour le diagnostic staging. Mettre explicitement
+`OTP_LOG_PLAINTEXT=false` avant la production.
+
+Le token n'est jamais versionné. L'utilisateur ouvre le bot, partage son
+propre contact, puis Auth lie `telegram_user_id` et `telegram_chat_id` à son
+compte. Les OTP suivants sont envoyés dans ce chat privé. Le worker utilise le
+long polling Telegram et supprime le webhook au démarrage.
+
+## Points et Loyalty
+
+Auth ne stocke pas de solde de points. Un service Loyalty central possédera le
+ledger, les règles, les annulations et l'historique. Les modules source lui
+notifieront les opérations confirmées : trajets, paiements, dépôts et
+parrainages. Chaque écriture devra être idempotente.
+
+Le contrat d'intégration est dans
+`DiddiFreeID_Loyalty_Integration.md`. Le projet Loyalty n'existe pas encore
+dans ce dépôt.
+
+## Déploiement Portainer
+
+`docker-compose.portainer.yml` ne charge pas de fichier `.env`. Les variables
+sont fournies directement dans Portainer. La base et Redis restent internes à
+la stack, l'application attend la base, exécute `alembic upgrade head`, puis
+démarre l'API. Les clés JWT sont générées dans le volume Docker persistant.
+Le service sans port `account-purger` exécute la purge finale chaque heure.
+
+## État actuel
+
+Les migrations Telegram et profil sont présentes. Les contrôles de compilation
+et de format de diff passent. Les tests d'intégration nécessitent les
+dépendances Python, PostgreSQL, Redis et Docker disponibles dans
+l'environnement d'exécution. La projection DiddiFree Pro est également
+présente : `GET /identity/v1/pro/me`, demande de capacité, synchronisation S2S
+par module propriétaire et décision d'accès côté administration. Les états
+opérationnels restent la propriété de DiddiGo, DiddiSend, DiddiPay ou du
+module concerné.

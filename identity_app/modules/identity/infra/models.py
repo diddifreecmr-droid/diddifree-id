@@ -8,10 +8,11 @@ changes — the models, and every command above them, stay as they are.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +23,12 @@ class UserModel(Base):
     __tablename__ = "users"
     __table_args__ = (
         Index("idx_users_phone", "phone"),
+        Index(
+            "idx_users_email",
+            text("lower(email)"),
+            unique=True,
+            postgresql_where=text("email IS NOT NULL"),
+        ),
         # Supports the `?role=driver` filter of `GET /admin/users`.
         Index("idx_users_role", "role"),
         {"schema": "identity"},
@@ -32,8 +39,13 @@ class UserModel(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
-    phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    language: Mapped[str] = mapped_column(String(2), nullable=False, server_default=text("'fr'"))
+    photo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'user'"))
     status: Mapped[str] = mapped_column(
@@ -42,12 +54,25 @@ class UserModel(Base):
     # Role awaiting a KYC decision. NULL means nothing is pending — which is
     # also what makes `WHERE requested_role IS NOT NULL` the review queue.
     requested_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Google Play review accounts are isolated by downstream modules. This is
+    # an identity-owned marker, not a business role or a frontend preference.
+    is_review_account: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    deletion_scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    deletion_previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:
         return f"<User id={self.id} phone={self.phone!r} role={self.role} status={self.status}>"
@@ -57,6 +82,7 @@ class OtpCodeModel(Base):
     __tablename__ = "otp_codes"
     __table_args__ = (
         Index("idx_otp_phone", "phone"),
+        Index("idx_otp_email", "email"),
         {"schema": "identity"},
     )
 
@@ -65,7 +91,39 @@ class OtpCodeModel(Base):
         primary_key=True,
         server_default=text("uuid_generate_v4()"),
     )
-    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class ContactLinkChallengeModel(Base):
+    """Short-lived OTPs used to prove ownership of a new contact method."""
+
+    __tablename__ = "contact_link_challenges"
+    __table_args__ = (
+        Index("idx_contact_link_user", "user_id"),
+        Index("idx_contact_link_target", "contact_type", "target"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contact_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    target: Mapped[str] = mapped_column(String(320), nullable=False)
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -103,6 +161,41 @@ class RefreshTokenModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
+
+
+class UserActivityDailyModel(Base):
+    """Daily authenticated activity used for identity reporting.
+
+    This deliberately records one row per user and business day rather than
+    request-level telemetry. It supports DAU/MAU without retaining a raw
+    activity log or putting identifiers into Pilotage responses.
+    """
+
+    __tablename__ = "user_activity_daily"
+    __table_args__ = (
+        Index("uq_user_activity_daily_user_day", "user_id", "activity_date", unique=True),
+        Index("idx_user_activity_daily_date", "activity_date"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    activity_date: Mapped[date] = mapped_column(Date, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    source: Mapped[str] = mapped_column(String(40), nullable=False, server_default=text("'authentication'"))
 
 
 class UserRoleHistoryModel(Base):
@@ -153,5 +246,117 @@ class UserStatusHistoryModel(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class UserReviewAccountHistoryModel(Base):
+    """Immutable audit trail for Google Play review account decisions."""
+
+    __tablename__ = "user_review_account_history"
+    __table_args__ = (
+        Index("idx_review_account_history_user", "user_id"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_is_review_account: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    to_is_review_account: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    changed_by_client_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class ServiceClientModel(Base):
+    """Machine credentials; the plaintext secret is never persisted."""
+
+    __tablename__ = "service_clients"
+    __table_args__ = (
+        Index("uq_service_clients_client_id", "client_id", unique=True),
+        Index("idx_service_clients_service_environment", "service_name", "environment"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    client_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    service_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    environment: Mapped[str] = mapped_column(String(30), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    allowed_audiences: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    allowed_scopes: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+
+
+class UserCapabilityModel(Base):
+    """Global capability projection used by DiddiFree Pro.
+
+    Business modules remain the source of operational truth. This row only
+    stores the coarse access decision and the latest module projection.
+    """
+
+    __tablename__ = "user_capabilities"
+    __table_args__ = (
+        Index("uq_user_capabilities_user_service_type", "user_id", "service", "capability_type", unique=True),
+        Index("idx_user_capabilities_user", "user_id"),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("identity.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    service: Mapped[str] = mapped_column(String(80), nullable=False)
+    capability_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    access_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'requested'"),
+    )
+    operational_status: Mapped[str] = mapped_column(
+        String(80), nullable=False, server_default=text("'unknown'"),
+    )
+    status_source: Mapped[str] = mapped_column(
+        String(80), nullable=False, server_default=text("'diddifreeid'"),
+    )
+    actions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    projection_version: Mapped[int] = mapped_column(
+        nullable=False, server_default=text("1"), default=1,
+    )
+    last_event_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )

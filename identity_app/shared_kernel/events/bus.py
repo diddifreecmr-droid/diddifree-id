@@ -37,6 +37,9 @@ import logging
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from identity_app.core.logging import get_request_id
+from identity_app.core.metrics import observe_event_publish
+from identity_app.core.tracing import inject_trace_context
 from identity_app.modules.identity.domain.events import DomainEvent
 
 logger = logging.getLogger(__name__)
@@ -59,16 +62,26 @@ class RedisEventPublisher:
 
     async def publish(self, event: DomainEvent) -> None:
         payload = event.to_payload()
+        trace_headers = inject_trace_context()
+        request_id = get_request_id()
+        if request_id:
+            trace_headers["request_id"] = request_id
         try:
-            entry_id = await self._redis.xadd(
+            await self._redis.xadd(
                 self._stream,
-                {"event": event.name, "payload": json.dumps(payload)},
+                {
+                    "event": event.name,
+                    "payload": json.dumps(payload),
+                    # Keep telemetry metadata out of the domain payload so
+                    # existing consumers remain compatible. Consumers that
+                    # support tracing can extract these W3C headers.
+                    **trace_headers,
+                },
                 maxlen=STREAM_MAX_LEN,
                 approximate=True,
             )
-            logger.info(
-                "événement publié : %s user_id=%s (entry=%s)", event.name, event.user_id, entry_id,
-            )
+            logger.info("Événement de domaine publié", extra={"event": "domain_event.published"})
+            observe_event_publish(event=event.name, result="success")
         except Exception:
             # Never let a bus failure roll back a completed write. The user IS
             # registered; the account exists. Failing the HTTP call here would
@@ -77,7 +90,13 @@ class RedisEventPublisher:
             # This is the residual gap that no transport closes on its own: the
             # write landed and the event did not. `GET /users/backfill` is how a
             # module recovers from it.
-            logger.error("publication de l'événement %s impossible", event.name, exc_info=True)
+            logger.error(
+                "publication de l'événement %s impossible",
+                event.name,
+                exc_info=True,
+                extra={"event": "domain_event.publish_failed"},
+            )
+            observe_event_publish(event=event.name, result="error")
 
 
 class NullEventPublisher:

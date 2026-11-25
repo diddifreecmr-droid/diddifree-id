@@ -8,25 +8,62 @@ reshaped a second time here.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+
+EmailAddress = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        to_lower=True,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    ),
+]
 
 
 class RegisterRequest(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     full_name: str | None = Field(default=None, max_length=120, examples=["Awa Koné"])
+
+    @model_validator(mode="after")
+    def require_identifier(self) -> RegisterRequest:
+        if not self.phone and not self.email:
+            raise ValueError("phone ou email requis")
+        return self
 
 
 class OtpRequestBody(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
+    channel: Literal["email", "sms", "telegram", "whatsapp"] | None = Field(
+        default=None,
+        description="Canal OTP. Si absent, OTP_PROVIDER est utilisé.",
+    )
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> OtpRequestBody:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un identifiant phone ou email requis")
+        return self
 
 
 class OtpVerifyRequest(BaseModel):
-    phone: str = Field(examples=["+2250700000000"])
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
     # Exactly six digits. Enforced here so a malformed code is a `422` on the
     # field rather than a wasted attempt against the counter that protects the
     # real code.
     code: str = Field(pattern=r"^\d{6}$", examples=["482913"])
     device_info: str | None = Field(default=None, max_length=200, examples=["iPhone 13 · iOS 17.4"])
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> OtpVerifyRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un identifiant phone ou email requis")
+        return self
 
 
 class RefreshRequest(BaseModel):
@@ -41,10 +78,50 @@ class LogoutRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=120)
+    email: EmailAddress | None = None
+    language: Literal["fr", "en"] | None = None
+    photo_url: str | None = Field(default=None, max_length=2048)
+
+
+class ContactLinkRequest(BaseModel):
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
+    channel: Literal["email", "sms", "telegram", "whatsapp"] | None = None
+
+    @model_validator(mode="after")
+    def require_one_contact(self) -> ContactLinkRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un nouveau contact phone ou email requis")
+        return self
+
+
+class ContactLinkVerifyRequest(BaseModel):
+    phone: str | None = Field(default=None, examples=["+2250700000000"])
+    email: EmailAddress | None = Field(default=None, examples=["awa@example.com"])
+    code: str = Field(pattern=r"^\d{6}$", examples=["482913"])
+
+    @model_validator(mode="after")
+    def require_one_contact(self) -> ContactLinkVerifyRequest:
+        if bool(self.phone) == bool(self.email):
+            raise ValueError("exactement un contact phone ou email requis")
+        return self
+
+
+class ContactLinkOtpResponse(BaseModel):
+    contact_type: Literal["phone", "email"]
+    channel: Literal["email", "sms", "telegram", "whatsapp", "logging"]
+    expires_in_seconds: int
+    retry_after_seconds: int
+
+
+class AccountDeletionResponse(BaseModel):
+    status: Literal["deletion_pending"]
+    scheduled_for: str
+    restore_until: str
 
 
 class ChangeRoleRequest(BaseModel):
-    role: str = Field(examples=["driver"])
+    role: str = Field(examples=["admin"])
     reason: str | None = Field(
         default=None,
         examples=["Validation KYC chauffeur DiddiGo, dossier #4021"],
@@ -54,6 +131,11 @@ class ChangeRoleRequest(BaseModel):
 class ChangeStatusRequest(BaseModel):
     status: str = Field(examples=["suspended"])
     reason: str | None = Field(default=None, examples=["Signalement fraude, ticket #883"])
+
+
+class ReviewAccountRequest(BaseModel):
+    is_review_account: bool
+    reason: str = Field(min_length=1, max_length=1000, examples=["Google Play review account"])
 
 
 class KycDecisionRequest(BaseModel):
@@ -70,33 +152,105 @@ class KycDecisionRequest(BaseModel):
     )
 
 
+class CapabilityProjectionRequest(BaseModel):
+    operational_status: str = Field(min_length=1, max_length=80, examples=["vehicle_missing"])
+    actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])
+    projection_version: int = Field(ge=1, examples=[2])
+    event_id: str | None = Field(default=None, max_length=160)
+
+
+class CapabilityAccessRequest(BaseModel):
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+
+
+class ServiceClientUpdateRequest(BaseModel):
+    """Mutable machine-client policy; secrets are never accepted or returned."""
+
+    allowed_audiences: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    allowed_scopes: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> ServiceClientUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("au moins un champ doit être modifié")
+        for field_name in ("allowed_audiences", "allowed_scopes"):
+            values = getattr(self, field_name)
+            if field_name in self.model_fields_set and values is None:
+                raise ValueError(f"{field_name} ne peut pas être null")
+            if values is not None:
+                normalized = list(dict.fromkeys(value.strip() for value in values))
+                if not normalized or any(not value or len(value) > 120 for value in normalized):
+                    raise ValueError(f"{field_name} contient une valeur invalide")
+                setattr(self, field_name, normalized)
+        return self
+
+
+class ServiceClientResponse(BaseModel):
+    client_id: str
+    service_name: str
+    environment: str
+    allowed_audiences: list[str]
+    allowed_scopes: list[str]
+    active: bool
+    expires_at: str | None
+    revoked_at: str | None
+
+
+class ServiceClientSecretRotationResponse(ServiceClientResponse):
+    client_secret: str
+
+
+class ServiceClientListResponse(BaseModel):
+    data: list[ServiceClientResponse]
+
+
 # --- responses --------------------------------------------------------------
 
 class UserProfile(BaseModel):
     id: str
-    phone: str
+    phone: str | None
+    email: EmailAddress | None
     full_name: str | None
+    language: Literal["fr", "en"]
+    photo_url: str | None
     role: str
     status: str
     #: Role awaiting a KYC decision, `null` when nothing is pending. Additive to
     #: the shape published in contract §2.
     requested_role: str | None = None
+    #: Account creation date, ISO 8601 UTC with `Z` (ticket 029). Additive.
+    #: `null` only if the stored row has no date (not expected in practice).
+    created_at: str | None = None
+
+
+class ReviewAccountResponse(BaseModel):
+    id: str
+    is_review_account: bool
 
 
 class RegisterResponse(BaseModel):
     user_id: str
-    phone: str
+    phone: str | None
     status: str
 
 
 class OtpRequestResponse(BaseModel):
     expires_in_seconds: int
     retry_after_seconds: int
+    channel: Literal["email", "sms", "telegram", "whatsapp", "logging", "review"]
 
 
 class TokenPairResponse(BaseModel):
     access_token: str
     refresh_token: str
+
+
+class ServiceTokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+    scope: str
 
 
 class AuthenticatedResponse(TokenPairResponse):
@@ -113,3 +267,71 @@ class Pagination(BaseModel):
 class UserListResponse(BaseModel):
     data: list[UserProfile]
     pagination: Pagination
+
+
+class CapabilityResponse(BaseModel):
+    service: str
+    type: str
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    operational_status: str
+    status_source: str
+    actions: list[str]
+    projection_version: int
+    last_event_id: str | None
+    updated_at: str
+    created_at: str
+    freshness: Literal["fresh", "stale"] = "fresh"
+
+
+class ProMeResponse(BaseModel):
+    user_id: str
+    calculated_at: str
+    capabilities: list[CapabilityResponse]
+
+
+class SupportCapabilityContext(BaseModel):
+    service: str
+    type: str
+    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    operational_status: str
+    status_source: str
+    updated_at: str
+
+
+class SupportUserContext(BaseModel):
+    display_name: str | None
+    phone_masked: str | None
+    email_masked: str | None
+    language: Literal["fr", "en"]
+    account_status: str
+    created_at: str | None
+    capabilities: list[SupportCapabilityContext]
+
+
+class SupportContextResponse(BaseModel):
+    protocol: Literal["diddi.context.v1"]
+    resource_type: Literal["user"]
+    resource_id: str
+    context: SupportUserContext
+
+
+class IdentityMetricResponse(BaseModel):
+    name: str
+    value: int
+    unit: str
+
+
+class IdentitySummarySourceResponse(BaseModel):
+    module: str
+    record_type: str
+
+
+class IdentitySummaryResponse(BaseModel):
+    contract_version: str
+    module: str
+    date: str
+    timezone: str
+    is_final: bool
+    metrics: list[IdentityMetricResponse]
+    calculated_at: str
+    sources: list[IdentitySummarySourceResponse]

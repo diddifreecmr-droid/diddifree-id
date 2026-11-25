@@ -15,15 +15,23 @@ from identity_app.modules.identity.domain.interfaces import UserWriteRepository
 class RegisterUser:
     users: UserWriteRepository
 
-    async def __call__(self, *, phone: str, full_name: str | None) -> dict:
-        phone = validate_phone(phone)
+    async def __call__(self, *, phone: str | None, email: str | None, full_name: str | None) -> dict:
+        phone = validate_phone(phone) if phone else None
+        email = email.strip().lower() if email else None
 
-        if await self.users.find_by_phone(phone) is not None:
+        if phone is None and email is None:
+            raise ApiError(422, "IDENTIFIER_REQUIRED", "Un téléphone ou un e-mail est requis.")
+
+        if phone is not None and await self.users.find_by_phone(phone) is not None:
             raise ApiError(409, "PHONE_ALREADY_REGISTERED", "Ce numéro est déjà enregistré.")
+
+        if email is not None and await self.users.find_by_email(email) is not None:
+            raise ApiError(409, "EMAIL_ALREADY_REGISTERED", "Cette adresse e-mail est déjà enregistrée.")
 
         user = User(
             id=User.new_id(),
             phone=phone,
+            email=email,
             full_name=full_name or None,
             # No `role` parameter, unlike DiddiGo's register: contract §1 makes
             # every account a plain `user`, and a module promotes it through

@@ -23,30 +23,49 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from identity_app.core.database import get_session
 from identity_app.core.redis import get_redis  # noqa: F401 — re-exported
 from identity_app.modules.identity.application.commands import (
+    ChangeReviewAccount,
     ChangeRole,
     ChangeStatus,
     DecideKyc,
+    IssueServiceToken,
     Logout,
     RefreshAccessToken,
     RegisterUser,
+    RequestAccountDeletion,
+    RequestCapability,
+    RequestContactLinkOtp,
     RequestOtp,
+    UpdateCapabilityAccess,
+    UpdateCapabilityProjection,
     UpdateProfile,
+    VerifyContactLinkOtp,
     VerifyOtp,
 )
 from identity_app.modules.identity.application.queries import (
     GetCurrentUserProfile,
+    GetIdentitySummary,
     GetJwks,
+    GetMyCapabilities,
+    GetSupportUserContext,
     GetUserById,
     ListUsers,
 )
+from identity_app.modules.identity.domain.interfaces import OtpSender
 from identity_app.modules.identity.infra.cache import RedisProfileCache
-from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
-from identity_app.modules.identity.infra.read_repository import SqlAlchemyUserReadRepository
-from identity_app.modules.identity.infra.sms_adapter import LoggingOtpSender
+from identity_app.modules.identity.infra.otp_router import OtpSenderRouter
+from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter, RedisReviewStaticOtpRateLimiter
+from identity_app.modules.identity.infra.read_repository import (
+    SqlAlchemyCapabilityReadRepository,
+    SqlAlchemyUserReadRepository,
+)
+from identity_app.modules.identity.infra.service_client_repository import SqlAlchemyServiceClientRepository
 from identity_app.modules.identity.infra.token_service import TokenService
 from identity_app.modules.identity.infra.write_repository import (
+    SqlAlchemyCapabilityWriteRepository,
+    SqlAlchemyContactLinkChallengeRepository,
     SqlAlchemyOtpRepository,
     SqlAlchemyRefreshTokenRepository,
+    SqlAlchemyUserActivityWriteRepository,
     SqlAlchemyUserWriteRepository,
 )
 from identity_app.shared_kernel.events.bus import RedisEventPublisher
@@ -78,8 +97,20 @@ async def user_write_repo(session: AsyncSession = Depends(session_dep)) -> SqlAl
     return SqlAlchemyUserWriteRepository(session)
 
 
+async def user_activity_write_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyUserActivityWriteRepository:
+    return SqlAlchemyUserActivityWriteRepository(session)
+
+
 async def otp_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyOtpRepository:
     return SqlAlchemyOtpRepository(session)
+
+
+async def contact_link_challenge_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyContactLinkChallengeRepository:
+    return SqlAlchemyContactLinkChallengeRepository(session)
 
 
 async def refresh_token_repo(
@@ -88,10 +119,30 @@ async def refresh_token_repo(
     return SqlAlchemyRefreshTokenRepository(session)
 
 
+async def service_client_repo(
+    session: AsyncSession = Depends(session_dep),
+) -> SqlAlchemyServiceClientRepository:
+    return SqlAlchemyServiceClientRepository(session)
+
+
 # --- read repositories (queries only) --------------------------------------
 
 async def user_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyUserReadRepository:
     return SqlAlchemyUserReadRepository(session)
+
+
+async def capability_read_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityReadRepository:
+    return SqlAlchemyCapabilityReadRepository(session)
+
+
+async def get_identity_summary_query(
+    session: AsyncSession = Depends(session_dep),
+) -> GetIdentitySummary:
+    return GetIdentitySummary(users=SqlAlchemyUserReadRepository(session))
+
+
+async def capability_write_repo(session: AsyncSession = Depends(session_dep)) -> SqlAlchemyCapabilityWriteRepository:
+    return SqlAlchemyCapabilityWriteRepository(session)
 
 
 # --- infrastructure services -----------------------------------------------
@@ -108,8 +159,12 @@ def otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisOtpRateLimiter:
     return RedisOtpRateLimiter(redis)
 
 
-def otp_sender() -> LoggingOtpSender:
-    return LoggingOtpSender()
+def review_static_otp_rate_limiter(redis: Redis = Depends(get_redis)) -> RedisReviewStaticOtpRateLimiter:
+    return RedisReviewStaticOtpRateLimiter(redis)
+
+
+def otp_sender(request: Request) -> OtpSender:
+    return OtpSenderRouter(getattr(request.app.state, "telegram_client", None))
 
 
 # --- commands ---------------------------------------------------------------
@@ -123,10 +178,33 @@ def register_user_command(
 def request_otp_command(
     otps: SqlAlchemyOtpRepository = Depends(otp_repo),
     users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
-    sender: LoggingOtpSender = Depends(otp_sender),
+    sender: OtpSender = Depends(otp_sender),
     limiter: RedisOtpRateLimiter = Depends(otp_rate_limiter),
 ) -> RequestOtp:
     return RequestOtp(otps=otps, users=users, sender=sender, rate_limiter=limiter)
+
+
+def request_contact_link_otp_command(
+    challenges: SqlAlchemyContactLinkChallengeRepository = Depends(contact_link_challenge_repo),
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    sender: OtpSender = Depends(otp_sender),
+    limiter: RedisOtpRateLimiter = Depends(otp_rate_limiter),
+) -> RequestContactLinkOtp:
+    return RequestContactLinkOtp(
+        challenges=challenges,
+        users=users,
+        sender=sender,
+        rate_limiter=limiter,
+    )
+
+
+def verify_contact_link_otp_command(
+    challenges: SqlAlchemyContactLinkChallengeRepository = Depends(contact_link_challenge_repo),
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> VerifyContactLinkOtp:
+    return VerifyContactLinkOtp(challenges=challenges, users=users, events=events, cache=cache)
 
 
 def verify_otp_command(
@@ -136,6 +214,8 @@ def verify_otp_command(
     tokens: TokenService = Depends(get_token_service),
     events: RedisEventPublisher = Depends(event_publisher),
     cache: RedisProfileCache = Depends(profile_cache),
+    activity: SqlAlchemyUserActivityWriteRepository = Depends(user_activity_write_repo),
+    review_limiter: RedisReviewStaticOtpRateLimiter = Depends(review_static_otp_rate_limiter),
 ) -> VerifyOtp:
     return VerifyOtp(
         otps=otps,
@@ -144,6 +224,8 @@ def verify_otp_command(
         tokens=tokens,
         events=events,
         cache=cache,
+        activity=activity,
+        review_limiter=review_limiter,
     )
 
 
@@ -151,14 +233,22 @@ def refresh_token_command(
     refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
     users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
     tokens: TokenService = Depends(get_token_service),
+    activity: SqlAlchemyUserActivityWriteRepository = Depends(user_activity_write_repo),
 ) -> RefreshAccessToken:
-    return RefreshAccessToken(refresh_tokens=refresh_tokens, users=users, tokens=tokens)
+    return RefreshAccessToken(refresh_tokens=refresh_tokens, users=users, tokens=tokens, activity=activity)
 
 
 def logout_command(
     refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
 ) -> Logout:
     return Logout(refresh_tokens=refresh_tokens)
+
+
+def issue_service_token_command(
+    clients: SqlAlchemyServiceClientRepository = Depends(service_client_repo),
+    tokens: TokenService = Depends(get_token_service),
+) -> IssueServiceToken:
+    return IssueServiceToken(clients=clients, tokens=tokens)
 
 
 def update_profile_command(
@@ -194,6 +284,29 @@ def change_status_command(
     return ChangeStatus(users=users, refresh_tokens=refresh_tokens, events=events, cache=cache)
 
 
+def change_review_account_command(
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> ChangeReviewAccount:
+    return ChangeReviewAccount(
+        users=users,
+        refresh_tokens=refresh_tokens,
+        events=events,
+        cache=cache,
+    )
+
+
+def request_account_deletion_command(
+    users: SqlAlchemyUserWriteRepository = Depends(user_write_repo),
+    refresh_tokens: SqlAlchemyRefreshTokenRepository = Depends(refresh_token_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    cache: RedisProfileCache = Depends(profile_cache),
+) -> RequestAccountDeletion:
+    return RequestAccountDeletion(users=users, refresh_tokens=refresh_tokens, events=events, cache=cache)
+
+
 # --- queries ----------------------------------------------------------------
 
 def get_user_by_id_query(
@@ -214,6 +327,44 @@ def list_users_query(
     users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> ListUsers:
     return ListUsers(users=users)
+
+
+def get_my_capabilities_query(
+    capabilities: SqlAlchemyCapabilityReadRepository = Depends(capability_read_repo),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> GetMyCapabilities:
+    return GetMyCapabilities(capabilities=capabilities, users=users)
+
+
+def get_support_user_context_query(
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+    capabilities: SqlAlchemyCapabilityReadRepository = Depends(capability_read_repo),
+) -> GetSupportUserContext:
+    return GetSupportUserContext(users=users, capabilities=capabilities)
+
+
+def request_capability_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> RequestCapability:
+    return RequestCapability(capabilities=capabilities, events=events, users=users)
+
+
+def update_capability_projection_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> UpdateCapabilityProjection:
+    return UpdateCapabilityProjection(capabilities=capabilities, events=events, users=users)
+
+
+def update_capability_access_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> UpdateCapabilityAccess:
+    return UpdateCapabilityAccess(capabilities=capabilities, events=events, users=users)
 
 
 def get_jwks_query(tokens: TokenService = Depends(get_token_service)) -> GetJwks:

@@ -92,6 +92,7 @@ async def require_admin(
 
 async def require_service_or_admin(
     request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
     x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     tokens: TokenService = Depends(get_token_service),
@@ -100,13 +101,13 @@ async def require_service_or_admin(
     """Caller is a backend service, or a human admin.
 
     Guards the two routes a module calls on its own behalf: `GET /users/{id}`
-    and `PATCH /users/{id}/role`. Contract §5 leaves the mechanism open pending
-    the Infra network decision, so both accepted forms are implemented and
-    either can be switched off by configuration:
+    and `PATCH /users/{id}/role`. New integrations use a short-lived
+    client-credentials JWT plus `X-Client-ID`. `X-Service-Key` remains
+    accepted only for legacy integrations during the migration window:
 
       * `X-Service-Key`, matched against `SERVICE_API_KEYS`;
-      * an access token carrying `role=service`, minted by
-        `scripts/issue_service_token.py`.
+      * a client-credentials token carrying `role=service`, minted by
+        `POST /auth/service/token`.
 
     Returns the acting admin's id, or `None` when the caller is a service —
     which is what lands in the audit trail's `changed_by`.
@@ -124,6 +125,21 @@ async def require_service_or_admin(
     request.state.claims = claims
 
     if claims.get("role") == SERVICE_ROLE:
+        if claims.get("token_type") == "service":
+            if not x_client_id or x_client_id != claims.get("client_id"):
+                raise ApiError(
+                    401,
+                    "SERVICE_CLIENT_ID_INVALID",
+                    "X-Client-ID ne correspond pas au client du token service.",
+                )
+            required_scope = _required_service_scope(request)
+            if required_scope is None:
+                raise ApiError(403, "SERVICE_SCOPE_INVALID", "Cette route n'a pas de scope service déclaré.")
+            tokens.decode_service_token(
+                credentials.credentials,
+                audience=settings.jwt_issuer,
+                required_scopes={required_scope},
+            )
         return None
 
     try:
@@ -143,3 +159,211 @@ async def require_service_or_admin(
             "Cette route est réservée aux appels service-à-service et aux administrateurs.",
         )
     return user.id
+
+
+async def require_capability_service(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize a module updating its own operational projection.
+
+    The service name in the JWT must match the path segment. This prevents a
+    valid DiddiSend client from writing a DiddiGo projection by changing only
+    the URL.
+    """
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("status") != UserStatus.ACTIVE.value:
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service inactif.")
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au client du token service.")
+    target_service = request.path_params.get("service")
+    if target_service != claims.get("service"):
+        raise ApiError(403, "SERVICE_CAPABILITY_OWNER_INVALID", "Le service ne peut modifier que sa propre projection.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"capabilities:write"},
+    )
+
+
+async def require_pilotage_reporting(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize Pilotage's aggregate identity-reporting read surface."""
+
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification service requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("service") != "pilotage":
+        raise ApiError(403, "SERVICE_REPORTING_FORBIDDEN", "Seul Pilotage peut lire ce résumé.")
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au token service.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"identity:reporting:read"},
+    )
+
+
+async def require_support_context_reader(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize DiddiSupport to read the deliberately minimal user context."""
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification service requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("service") != "diddisupport":
+        raise ApiError(
+            403,
+            "SERVICE_SUPPORT_CONTEXT_FORBIDDEN",
+            "Seul DiddiSupport peut lire ce contexte.",
+        )
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au token service.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"identity:support-context:read"},
+    )
+
+
+async def require_backoffice_capability_read(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or the dedicated Backoffice service to read one user's capabilities."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="capabilities:read",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
+async def require_backoffice_capability_write(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or Backoffice to change global capability access."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="capabilities:access:write",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
+async def require_backoffice_review_account_write(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> User | None:
+    """Allow an admin or Backoffice to manage Google Play review accounts."""
+    return await _require_admin_or_backoffice_capability(
+        request=request,
+        required_scope="review-accounts:write",
+        x_client_id=x_client_id,
+        credentials=credentials,
+        tokens=tokens,
+        users=users,
+    )
+
+
+async def _require_admin_or_backoffice_capability(
+    *,
+    request: Request,
+    required_scope: str,
+    x_client_id: str | None,
+    credentials: HTTPAuthorizationCredentials,
+    tokens: TokenService,
+    users: SqlAlchemyUserReadRepository,
+) -> User | None:
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification requise.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") == SERVICE_ROLE:
+        if claims.get("service") != "backoffice":
+            raise ApiError(403, "SERVICE_CAPABILITY_ACCESS_FORBIDDEN", "Seul le Backoffice peut gérer cet accès.")
+        if not x_client_id or x_client_id != claims.get("client_id"):
+            raise ApiError(
+                401,
+                "SERVICE_CLIENT_ID_INVALID",
+                "X-Client-ID ne correspond pas au client du token service.",
+            )
+        tokens.decode_service_token(
+            credentials.credentials,
+            audience=settings.jwt_issuer,
+            required_scopes={required_scope},
+        )
+        return None
+
+    try:
+        user_id = UUID(claims["sub"])
+    except (KeyError, ValueError) as exc:
+        raise ApiError(401, "TOKEN_INVALID", "Claim `sub` absent ou malformé.") from exc
+    user = await users.get_by_id(user_id)
+    if user is None:
+        raise ApiError(401, "TOKEN_INVALID", "Utilisateur introuvable.")
+    if user.status != UserStatus.ACTIVE:
+        raise ApiError(403, "USER_SUSPENDED", "Ce compte n'est pas actif.")
+    if user.role != UserRole.ADMIN:
+        raise ApiError(403, "FORBIDDEN_ROLE", "Rôle insuffisant pour cette action.")
+    return user
+
+
+def _required_service_scope(request: Request) -> str | None:
+    """Map existing service routes to the scoped-token contract.
+
+    Legacy `role=service` tokens intentionally bypass this map during the
+    migration window. New client-credentials tokens must be explicit.
+    """
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", request.url.path)
+    if request.method == "GET" and route_path.endswith("/users/backfill"):
+        return "users:backfill:read"
+    if request.method == "GET" and route_path.endswith("/users/{user_id}"):
+        return "profile:read"
+    if request.method == "PATCH" and route_path.endswith("/users/{user_id}/role"):
+        return "role:write"
+    return None

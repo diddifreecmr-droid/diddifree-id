@@ -18,6 +18,7 @@ from uuid import UUID
 from identity_app.core.errors import ApiError
 from identity_app.modules.identity.application.payloads import profile_payload
 from identity_app.modules.identity.domain.entities import (
+    MODULE_OWNED_ROLE_NAMES,
     UserRoleChange,
     UserStatus,
     UserStatusChange,
@@ -54,6 +55,14 @@ class DecideKyc:
                 409,
                 "NO_KYC_PENDING",
                 "Aucune demande de rôle en attente pour cet utilisateur.",
+            )
+
+        if requested.value in MODULE_OWNED_ROLE_NAMES:
+            raise ApiError(
+                410,
+                "KYC_MOVED_TO_MODULE",
+                "La qualification KYC et les rôles métier sont gérés par leur module propriétaire.",
+                {"role": requested.value},
             )
 
         now = datetime.now(UTC)

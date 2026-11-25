@@ -1,0 +1,191 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
+      REDIS_URL: redis://redis:6379/0
+      APP_HOST_PORT: ${APP_HOST_PORT:-18010}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
+      OTEL_SERVICE_NAME: diddifree-id
+      SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
+      SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
+      DIDDI_DEPLOYMENT_ID: ${DEPLOYMENT_ID:-${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}}
+      METRICS_AUTH_TOKEN: ${METRICS_BEARER_TOKEN:-${METRICS_AUTH_TOKEN:-}}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
+      OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
+      OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+      OBSERVABILITY_LOG_FILE: ${OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability-api.jsonl}
+      OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
+      OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
+      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
+      WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
+      # The keys live in the persistent Docker volume mounted below.
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-diddifree-initial}
+      JWT_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_PREVIOUS_PUBLIC_KEY_PATH:-}
+      JWT_PREVIOUS_KID: ${JWT_PREVIOUS_KID:-}
+      JWT_ISSUER: ${JWT_ISSUER:-diddifree-id}
+      JWT_ACCESS_LIFETIME_MINUTES: ${JWT_ACCESS_LIFETIME_MINUTES:-15}
+      REFRESH_TOKEN_LIFETIME_DAYS: ${REFRESH_TOKEN_LIFETIME_DAYS:-30}
+      SERVICE_TOKEN_LIFETIME_SECONDS: ${SERVICE_TOKEN_LIFETIME_SECONDS:-600}
+      ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
+      OTP_CODE_LIFETIME_SECONDS: ${OTP_CODE_LIFETIME_SECONDS:-300}
+      OTP_RATE_LIMIT_SECONDS: ${OTP_RATE_LIMIT_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      OTP_HASH_PEPPER: ${OTP_HASH_PEPPER}
+      OTP_LOG_PLAINTEXT: ${OTP_LOG_PLAINTEXT:-false}
+      # Review credentials remain Portainer-only. Each value maps a Review
+      # user UUID to a six-digit code; no code belongs in this compose file.
+      REVIEW_STATIC_OTP_ENABLED: ${REVIEW_STATIC_OTP_ENABLED:-false}
+      REVIEW_STATIC_OTP_CODES_JSON: ${REVIEW_STATIC_OTP_CODES_JSON:-}
+      REVIEW_STATIC_OTP_MAX_ATTEMPTS: ${REVIEW_STATIC_OTP_MAX_ATTEMPTS:-5}
+      REVIEW_STATIC_OTP_LOCK_SECONDS: ${REVIEW_STATIC_OTP_LOCK_SECONDS:-900}
+      OTP_PROVIDER: ${OTP_PROVIDER:-logging}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-}
+      EVOLUTION_API_TIMEOUT_SECONDS: ${EVOLUTION_API_TIMEOUT_SECONDS:-20}
+      # Telegram bot commented out (core/lifespan.py). Rotate the token before
+      # reinstating: the previous one reached the logs.
+      # TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # TELEGRAM_POLL_TIMEOUT_SECONDS: ${TELEGRAM_POLL_TIMEOUT_SECONDS:-25}
+      SMTP_HOST: ${SMTP_HOST:-smtp.zoho.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-direction.technique@diddifree.com}
+      # Required only when OTP_PROVIDER=email; startup validates it then.
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-no-reply@diddifree.com}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-DiddiFreeID}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SERVICE_API_KEYS: ${SERVICE_API_KEYS:-}
+      API_PREFIX: ${API_PREFIX:-/identity/v1}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CORS_ALLOWED_ORIGIN_REGEX: ${CORS_ALLOWED_ORIGIN_REGEX:-^https?://(localhost|127[.]0[.]0[.]1)(:[0-9]+)?$}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${APP_HOST_PORT:-18010}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - jwtkeys:/app/keys
+      - observability_logs:/var/log/diddifree
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -s /app/keys/private.pem ] || [ ! -s /app/keys/public.pem ]; then
+          python scripts/generate_keys.py --out /app/keys --kid "${JWT_ACTIVE_KID:-diddifree-initial}"
+        fi
+        alembic upgrade head
+        exec uvicorn identity_app.main:app --host 0.0.0.0 --port 8000
+    labels:
+      com.diddifree.observability: "true"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  account-purger:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/diddi_free_id
+      REDIS_URL: redis://redis:6379/0
+      ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      OTEL_SERVICE_NAME: diddifree-id
+      SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
+      SERVICE_INSTANCE_ID: ${SERVICE_INSTANCE_ID:-}
+      DIDDI_DEPLOYMENT_ID: ${DEPLOYMENT_ID:-${DIDDI_DEPLOYMENT_ID:-diddifree-id-production}}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_CERTIFICATE: ${OTEL_EXPORTER_OTLP_CERTIFICATE:-}
+      OTEL_EXPORT_TIMEOUT_SECONDS: ${OTEL_EXPORT_TIMEOUT_SECONDS:-5}
+      OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+      # A rotating handler must have a single writer. The API owns the api
+      # file; this periodic worker owns the worker file on the shared volume.
+      OBSERVABILITY_LOG_FILE: ${WORKER_OBSERVABILITY_LOG_FILE:-/var/log/diddifree/observability-worker.jsonl}
+      OBSERVABILITY_LOG_MAX_BYTES: ${OBSERVABILITY_LOG_MAX_BYTES:-10485760}
+      OBSERVABILITY_LOG_BACKUP_COUNT: ${OBSERVABILITY_LOG_BACKUP_COUNT:-5}
+      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-7200}
+      WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-14400}
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    command: ["sh", "-c", "while true; do python scripts/purge_deleted_accounts.py; sleep 3600; done"]
+    volumes:
+      - observability_logs:/var/log/diddifree
+    healthcheck:
+      test: ["CMD", "python", "scripts/worker_healthcheck.py", "account-purger"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      com.diddifree.observability: "true"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: diddi_free_id
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${DB_HOST_PORT:-15438}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d diddi_free_id"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    labels:
+      com.diddifree.observability: "true"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-16391}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    labels:
+      com.diddifree.observability: "true"
+
+volumes:
+  observability_logs:
+    name: ${OBSERVABILITY_LOG_VOLUME_NAME:-diddifree-id-observability-logs-staging}
+  pgdata:
+  jwtkeys:

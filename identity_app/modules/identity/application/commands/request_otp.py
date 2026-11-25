@@ -15,6 +15,7 @@ from identity_app.modules.identity.domain.interfaces import (
     OtpRepository,
     OtpSender,
     UserWriteRepository,
+    WhatsAppNumberNotFound,
 )
 from identity_app.modules.identity.infra.rate_limiter import RedisOtpRateLimiter
 
@@ -26,8 +27,19 @@ class RequestOtp:
     sender: OtpSender
     rate_limiter: RedisOtpRateLimiter
 
-    async def __call__(self, *, phone: str, client_ip: str | None = None) -> dict:
-        phone = validate_phone(phone)
+    async def __call__(
+        self,
+        *,
+        phone: str | None,
+        email: str | None = None,
+        channel: str | None = None,
+        client_ip: str | None = None,
+    ) -> dict:
+        phone = validate_phone(phone) if phone else None
+        email = email.strip().lower() if email else None
+        if bool(phone) == bool(email):
+            raise ApiError(422, "IDENTIFIER_REQUIRED", "Exactement un téléphone ou un e-mail est requis.")
+        identifier = phone or email
 
         if client_ip and not await self.rate_limiter.hit_ip(client_ip):
             raise ApiError(
@@ -37,8 +49,8 @@ class RequestOtp:
                 {"retry_after_seconds": settings.otp_rate_limit_seconds},
             )
 
-        remaining = await self.rate_limiter.seconds_until_phone_allowed(
-            phone, settings.otp_rate_limit_seconds,
+        remaining = await self.rate_limiter.seconds_until_identifier_allowed(
+            identifier, settings.otp_rate_limit_seconds,
         )
         if remaining > 0:
             raise ApiError(
@@ -48,35 +60,85 @@ class RequestOtp:
                 {"retry_after_seconds": remaining},
             )
 
-        user = await self.users.find_by_phone(phone)
+        user = await self.users.find_by_phone(phone) if phone else await self.users.find_by_email(email)
+        # A final tombstone must behave like an unknown identifier. This keeps
+        # the endpoint's anti-enumeration contract and avoids sending OTPs to a
+        # contact that was deliberately erased.
+        if user is not None and user.status.value == "deleted":
+            user = None
+        selected_channel = channel or settings.otp_provider
+        if selected_channel == "smtp":
+            selected_channel = "email"
+        if selected_channel == "telegram" and phone is None:
+            raise ApiError(422, "TELEGRAM_REQUIRES_PHONE", "Telegram nécessite un numéro de téléphone.")
+        if selected_channel == "whatsapp" and phone is None:
+            raise ApiError(422, "WHATSAPP_REQUIRES_PHONE", "WhatsApp nécessite un numéro de téléphone.")
+        if selected_channel == "sms" and phone is None:
+            raise ApiError(422, "SMS_REQUIRES_PHONE", "SMS nécessite un numéro de téléphone.")
 
-        # The response is identical whether or not the number is known. Any
+        # The response is identical whether or not the identifier is known. Any
         # difference here — a 404, a different delay, another error code —
         # turns this endpoint into an oracle for "is this person a DiddiFree
         # user", which is exactly the kind of question an attacker asks first.
-        # A caller who requests a code for an unknown number simply never
+        # A caller who requests a code for an unknown identifier simply never
         # receives one, and `verify` answers the usual `400 OTP_INVALID`.
         if user is not None:
+            if user.is_review_account and settings.review_static_otp_enabled:
+                # A Review code is configured out-of-band in Portainer. Do not
+                # create a database OTP, deliver a message or log its value.
+                if str(user.id) not in settings.review_static_otp_codes:
+                    raise ApiError(
+                        503,
+                        "REVIEW_LOGIN_NOT_CONFIGURED",
+                        "La connexion du compte Review n'est pas configurée.",
+                    )
+                await self.rate_limiter.mark_identifier_sent(identifier, settings.otp_rate_limit_seconds)
+                return {
+                    "expires_in_seconds": 0,
+                    "retry_after_seconds": settings.otp_rate_limit_seconds,
+                    "channel": "review",
+                }
+            if selected_channel == "email" and not user.email:
+                raise ApiError(
+                    409,
+                    "EMAIL_NOT_CONFIGURED",
+                    "Ajoutez une adresse e-mail avant de demander un code par e-mail.",
+                )
             now = datetime.now(UTC)
             code = f"{randbelow(1_000_000):06d}"
             await self.otps.save(
                 OtpCode(
                     id=OtpCode.new_id(),
                     phone=phone,
+                    email=email,
                     code_hash=hash_otp_code(code),
                     expires_at=now + timedelta(seconds=settings.otp_code_lifetime_seconds),
                     created_at=now,
                 ),
             )
             # Commit before the code leaves the process: the user can submit it
-            # the instant the SMS lands, and `verify_otp` runs on another
+            # the instant the message arrives, and `verify_otp` runs on another
             # session that must already see this row.
             await self.otps.commit()
-            await self.sender.send(phone, code)
+            try:
+                await self.sender.send(phone, code, selected_channel, email)
+            except WhatsAppNumberNotFound as exc:
+                raise ApiError(
+                    422,
+                    "WHATSAPP_NUMBER_NOT_FOUND",
+                    "Ce numéro n'existe pas sur WhatsApp.",
+                ) from exc
+            except RuntimeError as exc:
+                raise ApiError(
+                    502,
+                    "OTP_PROVIDER_UNAVAILABLE",
+                    "Le service d'envoi OTP est momentanément indisponible. Réessayez plus tard.",
+                ) from exc
 
-        await self.rate_limiter.mark_phone_sent(phone, settings.otp_rate_limit_seconds)
+        await self.rate_limiter.mark_identifier_sent(identifier, settings.otp_rate_limit_seconds)
 
         return {
             "expires_in_seconds": settings.otp_code_lifetime_seconds,
             "retry_after_seconds": settings.otp_rate_limit_seconds,
+            "channel": selected_channel,
         }

@@ -18,7 +18,7 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
-from identity_app.modules.identity.domain.entities import User, UserRole, UserStatus
+from identity_app.modules.identity.domain.entities import User, UserLanguage, UserRole, UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,13 @@ class RedisProfileCache:
             return User(
                 id=UUID(data["id"]),
                 phone=data["phone"],
+                email=data.get("email"),
                 full_name=data["full_name"],
+                language=UserLanguage(data.get("language", "fr")),
+                photo_url=data.get("photo_url"),
                 role=UserRole(data["role"]),
                 status=UserStatus(data["status"]),
+                is_review_account=bool(data.get("is_review_account", False)),
                 created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
                 updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
             )
@@ -67,9 +71,13 @@ class RedisProfileCache:
             {
                 "id": str(user.id),
                 "phone": user.phone,
+                "email": user.email,
                 "full_name": user.full_name,
+                "language": user.language.value,
+                "photo_url": user.photo_url,
                 "role": user.role.value,
                 "status": user.status.value,
+                "is_review_account": user.is_review_account,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
                 "updated_at": user.updated_at.isoformat() if user.updated_at else None,
             },

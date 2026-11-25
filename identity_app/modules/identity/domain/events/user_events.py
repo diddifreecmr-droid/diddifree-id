@@ -16,7 +16,7 @@ class DomainEvent:
     """Base envelope: the four fields every subscriber can rely on."""
 
     user_id: UUID
-    phone: str
+    phone: str | None
     role: str
     at: datetime = field(default_factory=_now)
 
@@ -60,6 +60,21 @@ class UserUpdated(DomainEvent):
 
 
 @dataclass
+class UserReviewAccountChanged(DomainEvent):
+    """Notify modules to refresh their local Google Play review projection."""
+
+    old_is_review_account: bool = False
+    new_is_review_account: bool = False
+    name: str = field(init=False, default="user.review_account_changed")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "old_is_review_account": self.old_is_review_account,
+            "new_is_review_account": self.new_is_review_account,
+        }
+
+
+@dataclass
 class UserRoleChanged(DomainEvent):
     old_role: str = ""
     new_role: str = ""
@@ -94,4 +109,79 @@ class UserStatusChanged(DomainEvent):
             "old_status": self.old_status,
             "new_status": self.new_status,
             "reason": self.reason,
+        }
+
+
+@dataclass
+class UserDeletionRequested(DomainEvent):
+    scheduled_for: datetime | None = None
+    name: str = field(init=False, default="user.deletion_requested")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "scheduled_for": (
+                self.scheduled_for.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                if self.scheduled_for
+                else None
+            ),
+        }
+
+
+@dataclass
+class UserDeletionCancelled(DomainEvent):
+    restored_status: str = "active"
+    name: str = field(init=False, default="user.deletion_cancelled")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {"restored_status": self.restored_status}
+
+
+@dataclass
+class UserDeleted(DomainEvent):
+    deleted_at: datetime | None = None
+    name: str = field(init=False, default="user.deleted")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "deleted_at": (
+                self.deleted_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                if self.deleted_at
+                else None
+            ),
+        }
+
+
+@dataclass
+class CapabilityRequested(DomainEvent):
+    service: str = ""
+    capability_type: str = ""
+    access_status: str = "requested"
+    name: str = field(init=False, default="capability.requested")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "service": self.service,
+            "type": self.capability_type,
+            "access_status": self.access_status,
+        }
+
+
+@dataclass
+class CapabilityStatusUpdated(DomainEvent):
+    service: str = ""
+    capability_type: str = ""
+    access_status: str = "requested"
+    operational_status: str = "unknown"
+    status_source: str = "diddifreeid"
+    projection_version: int = 1
+    name: str = field(init=False, default="capability.status_updated")
+
+    def to_payload(self) -> dict:
+        return super().to_payload() | {
+            "service": self.service,
+            "type": self.capability_type,
+            "access_status": self.access_status,
+            "operational_status": self.operational_status,
+            "status_source": self.status_source,
+            "projection_version": self.projection_version,
         }
