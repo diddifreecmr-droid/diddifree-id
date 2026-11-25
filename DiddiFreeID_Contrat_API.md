@@ -541,6 +541,25 @@ scopes des routes existantes sont `profile:read`, `users:backfill:read` et
 La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
 valide jusqu'à son expiration, au maximum 600 secondes par défaut.
 
+### Lecture Rewards des capabilities professionnelles
+
+`GET /identity/v1/users/{user_id}/capabilities` est réservé au service
+`diddirewards`. Le JWT doit viser l'audience `diddifree-id`, porter le scope
+`capabilities:read` et être accompagné de `X-Client-ID` égal à `client_id`.
+
+La réponse expose uniquement la projection globale : `service`, `type`,
+`access_status`, `operational_status`, `status_source`, `updated_at`,
+`created_at` et `first_enabled_at`. Cette dernière est la première date à
+laquelle l'accès est devenu `enabled`; elle reste inchangée après une
+suspension ou une réactivation. Les critères de validation restent la
+responsabilité du module métier indiqué par `status_source`.
+
+Lorsqu'un module métier projette sa validation via
+`PATCH /identity/v1/pro/internal/users/{user_id}/capabilities/{service}/{type}/status`,
+il peut fournir `first_enabled_at`. DiddiFreeID l'accepte uniquement si la
+valeur n'existe pas encore et ne la remplace jamais lors d'une suspension ou
+d'une réactivation.
+
 Un token d'administrateur est également accepté sur cette route.
 
 ### `GET /pro/me`

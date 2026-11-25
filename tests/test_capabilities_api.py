@@ -30,6 +30,21 @@ def backoffice_headers(app, *, scopes: tuple[str, ...] = ("capabilities:read",))
     }
 
 
+def rewards_capability_headers(app, *, scopes: tuple[str, ...] = ("capabilities:read",)) -> dict[str, str]:
+    client_id = "diddirewards-staging-diddifreeid"
+    token = app.state.tokens.issue_service_token(
+        service_name="diddirewards",
+        client_id=client_id,
+        audience=settings.jwt_issuer,
+        scopes=scopes,
+        lifetime_seconds=600,
+    )
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Client-ID": client_id,
+    }
+
+
 async def test_pro_capability_projection_flow(client, user_session):
     from identity_app.main import app
 
@@ -56,10 +71,12 @@ async def test_pro_capability_projection_flow(client, user_session):
             "actions": ["complete_kyc"],
             "projection_version": 2,
             "event_id": "diddisend-event-2",
+            "first_enabled_at": "2026-11-20T12:00:00Z",
         },
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["operational_status"] == "pending_verification"
+    assert updated.json()["first_enabled_at"] == "2026-11-20T12:00:00Z"
 
     duplicate = await client.patch(
         f"{API}/pro/internal/users/{user_id}/capabilities/diddisend/courier/status",
@@ -69,6 +86,7 @@ async def test_pro_capability_projection_flow(client, user_session):
             "actions": ["complete_kyc"],
             "projection_version": 2,
             "event_id": "diddisend-event-2",
+            "first_enabled_at": "2026-11-20T12:00:00Z",
         },
     )
     assert duplicate.status_code == 200
@@ -81,6 +99,7 @@ async def test_pro_capability_projection_flow(client, user_session):
             "actions": [],
             "projection_version": 2,
             "event_id": "diddisend-event-other",
+            "first_enabled_at": "2026-11-20T12:00:00Z",
         },
     )
     assert conflict.status_code == 409
@@ -162,3 +181,74 @@ async def test_non_backoffice_service_cannot_change_capability_access(client, us
     )
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "SERVICE_CAPABILITY_ACCESS_FORBIDDEN"
+
+
+async def test_rewards_reads_first_enabled_at_and_it_survives_reactivation(
+    client, admin_session, user_session
+):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    requested = await client.post(
+        f"{API}/pro/capabilities/diddigo/driver/request",
+        headers=user_session["headers"],
+    )
+    assert requested.status_code == 201
+
+    enabled = await client.patch(
+        f"{API}/admin/users/{user_id}/capabilities/diddigo/driver",
+        headers=admin_session["headers"],
+        json={"access_status": "enabled"},
+    )
+    assert enabled.status_code == 200, enabled.text
+    first_enabled_at = enabled.json()["first_enabled_at"]
+    assert first_enabled_at is not None
+
+    rewards_read = await client.get(
+        f"{API}/users/{user_id}/capabilities",
+        headers=rewards_capability_headers(app),
+    )
+    assert rewards_read.status_code == 200, rewards_read.text
+    capability = rewards_read.json()["capabilities"][0]
+    assert capability["first_enabled_at"] == first_enabled_at
+
+    suspended = await client.patch(
+        f"{API}/admin/users/{user_id}/capabilities/diddigo/driver",
+        headers=admin_session["headers"],
+        json={"access_status": "suspended"},
+    )
+    assert suspended.status_code == 200
+    reenabled = await client.patch(
+        f"{API}/admin/users/{user_id}/capabilities/diddigo/driver",
+        headers=admin_session["headers"],
+        json={"access_status": "enabled"},
+    )
+    assert reenabled.status_code == 200
+    assert reenabled.json()["first_enabled_at"] == first_enabled_at
+
+
+async def test_rewards_capability_route_rejects_missing_scope_and_wrong_service(client, user_session):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    missing_scope = await client.get(
+        f"{API}/users/{user_id}/capabilities",
+        headers=rewards_capability_headers(app, scopes=("profile:read",)),
+    )
+    assert missing_scope.status_code == 403
+
+    token = app.state.tokens.issue_service_token(
+        service_name="diddisend",
+        client_id="diddisend-staging-diddifreeid",
+        audience=settings.jwt_issuer,
+        scopes=("capabilities:read",),
+        lifetime_seconds=600,
+    )
+    wrong_service = await client.get(
+        f"{API}/users/{user_id}/capabilities",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Client-ID": "diddisend-staging-diddifreeid",
+        },
+    )
+    assert wrong_service.status_code == 403

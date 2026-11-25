@@ -231,6 +231,7 @@ def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
         last_event_id=row.last_event_id,
         updated_at=row.updated_at,
         created_at=row.created_at,
+        first_enabled_at=row.first_enabled_at,
     )
 
 
@@ -263,6 +264,7 @@ class SqlAlchemyCapabilityWriteRepository:
         actions: list[str] | None = None,
         projection_version: int | None = None,
         last_event_id: str | None = None,
+        first_enabled_at: datetime | None = None,
     ) -> Capability:
         result = await self._session.execute(
             select(orm.UserCapabilityModel).where(
@@ -274,6 +276,7 @@ class SqlAlchemyCapabilityWriteRepository:
         row = result.scalar_one_or_none()
         now = datetime.now(UTC)
         if row is None:
+            first_enabled_at = first_enabled_at or (now if access_status == "enabled" else None)
             row = orm.UserCapabilityModel(
                 user_id=user_id,
                 service=service,
@@ -286,11 +289,16 @@ class SqlAlchemyCapabilityWriteRepository:
                 last_event_id=last_event_id,
                 created_at=now,
                 updated_at=now,
+                first_enabled_at=first_enabled_at,
             )
             self._session.add(row)
         else:
             if access_status is not None:
+                if access_status == "enabled" and row.first_enabled_at is None:
+                    row.first_enabled_at = now
                 row.access_status = access_status
+            if first_enabled_at is not None and row.first_enabled_at is None:
+                row.first_enabled_at = first_enabled_at
             if operational_status is not None:
                 row.operational_status = operational_status
             if status_source is not None:

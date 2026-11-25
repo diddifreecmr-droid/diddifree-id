@@ -13,10 +13,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
 
-from identity_app.core.auth_deps import get_current_user_id, require_service_or_admin
+from identity_app.core.auth_deps import (
+    get_current_user_id,
+    require_rewards_capability_reader,
+    require_service_or_admin,
+)
 from identity_app.core.deps import (
     change_role_command,
     get_current_profile_query,
+    get_my_capabilities_query,
     get_user_by_id_query,
     list_users_query,
     request_account_deletion_command,
@@ -35,6 +40,7 @@ from identity_app.modules.identity.application.queries import (
     GetCurrentUserProfile,
     GetUserById,
     ListUsers,
+    GetMyCapabilities,
 )
 from identity_app.modules.identity.infra.read_repository import MAX_PAGE_SIZE
 from identity_app.modules.identity.presentation.schemas import (
@@ -46,6 +52,7 @@ from identity_app.modules.identity.presentation.schemas import (
     UpdateProfileRequest,
     UserListResponse,
     UserProfile,
+    ProMeResponse,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -147,6 +154,16 @@ async def backfill(
     accounts it already knows about.
     """
     return await query(created_since=since, page=page, page_size=page_size)
+
+
+@router.get("/{user_id}/capabilities", response_model=ProMeResponse)
+async def get_user_capabilities_for_rewards(
+    user_id: UUID,
+    _caller: None = Depends(require_rewards_capability_reader),
+    query: GetMyCapabilities = Depends(get_my_capabilities_query),
+) -> dict:
+    """Return only the global capability projection needed by Rewards."""
+    return await query(user_id)
 
 
 @router.get("/{user_id}", response_model=UserProfile)

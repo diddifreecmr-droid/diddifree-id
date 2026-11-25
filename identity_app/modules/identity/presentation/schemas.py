@@ -8,6 +8,7 @@ reshaped a second time here.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
@@ -157,6 +158,10 @@ class CapabilityProjectionRequest(BaseModel):
     actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])
     projection_version: int = Field(ge=1, examples=[2])
     event_id: str | None = Field(default=None, max_length=160)
+    first_enabled_at: datetime | None = Field(
+        default=None,
+        description="UTC date supplied by the owning business module on first validation.",
+    )
 
 
 class CapabilityAccessRequest(BaseModel):
@@ -277,6 +282,7 @@ class CapabilityResponse(BaseModel):
     last_event_id: str | None
     updated_at: str
     created_at: str
+    first_enabled_at: str | None = None
     freshness: Literal["fresh", "stale"] = "fresh"
 
 

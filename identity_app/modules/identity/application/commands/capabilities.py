@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 from identity_app.core.errors import ApiError
@@ -74,6 +75,7 @@ class UpdateCapabilityProjection:
         actions: list[str],
         projection_version: int,
         event_id: str | None,
+        first_enabled_at: datetime | None = None,
     ) -> dict:
         _validate_names(service, capability_type)
         if await self.users.get_by_id(user_id) is None:
@@ -94,6 +96,10 @@ class UpdateCapabilityProjection:
         if current is not None and projection_version == current.projection_version:
             observe_capability_event(operation="projection", result="version_conflict", service=service)
             raise ApiError(409, "CAPABILITY_VERSION_CONFLICT", "La projection reçue a déjà cette version.")
+        if first_enabled_at is not None:
+            first_enabled_at = first_enabled_at.astimezone(UTC)
+            if first_enabled_at > datetime.now(UTC):
+                raise ApiError(422, "INVALID_FIRST_ENABLED_AT", "La date de validation ne peut pas être future.")
         capability = await self.capabilities.upsert(
             user_id=user_id,
             service=service,
@@ -103,6 +109,7 @@ class UpdateCapabilityProjection:
             actions=actions,
             projection_version=projection_version,
             last_event_id=event_id,
+            first_enabled_at=first_enabled_at,
         )
         await self.capabilities.commit()
         await self.events.publish(

@@ -68,4 +68,5 @@ async def update_capability_projection(
         actions=payload.actions,
         projection_version=payload.projection_version,
         event_id=payload.event_id,
+        first_enabled_at=payload.first_enabled_at,
     )

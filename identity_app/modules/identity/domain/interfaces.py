@@ -111,6 +111,7 @@ class CapabilityWriteRepository(Protocol):
         actions: list[str] | None = None,
         projection_version: int | None = None,
         last_event_id: str | None = None,
+        first_enabled_at: datetime | None = None,
     ) -> Capability:
         ...
 
