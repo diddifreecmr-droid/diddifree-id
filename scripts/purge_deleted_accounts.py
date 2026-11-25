@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from identity_app.core.database import async_session_factory, engine
-from identity_app.core.logging import configure_logging, reset_request_id, set_request_id
+from identity_app.core.logging import configure_logging, reset_request_id, set_request_id, shutdown_otel_logging
 from identity_app.core.metrics import configure_metrics, observe_job
 from identity_app.core.redis import create_redis_pool
 from identity_app.core.settings import settings
@@ -180,6 +180,7 @@ async def main() -> None:
         await redis.aclose()
         await engine.dispose()
         shutdown_tracing()
+        shutdown_otel_logging()
 
 
 if __name__ == "__main__":
