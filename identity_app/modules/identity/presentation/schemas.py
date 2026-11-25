@@ -219,6 +219,9 @@ class UserProfile(BaseModel):
     #: Role awaiting a KYC decision, `null` when nothing is pending. Additive to
     #: the shape published in contract §2.
     requested_role: str | None = None
+    #: Account creation date, ISO 8601 UTC with `Z` (ticket 029). Additive.
+    #: `null` only if the stored row has no date (not expected in practice).
+    created_at: str | None = None
 
 
 class ReviewAccountResponse(BaseModel):
