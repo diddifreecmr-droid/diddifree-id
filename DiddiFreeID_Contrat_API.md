@@ -346,12 +346,17 @@ ne veut pas le maintenir en cache lui-même.
   "photo_url": null,
   "role": "user",
   "status": "active",
-  "requested_role": null
+  "requested_role": null,
+  "created_at": "2026-09-21T13:00:00Z"
 }
 ```
 
 **Implémentation — `requested_role`** est un champ **additif** : il porte le rôle en attente de décision KYC, ou
 `null`. Un consommateur qui lit uniquement les champs de la v1 n'est pas affecté.
+
+**`created_at`** (ticket 029, additif) : date de création du compte, ISO 8601 en UTC avec le suffixe `Z`.
+Même forme sur `GET /users/me`, `GET /users/{user_id}` et partout où le profil est renvoyé. C'est la date
+de création du **compte DiddiFreeID**, pas celle d'une capacité Pro (voir `created_at` de `GET /pro/me`).
 
 **Erreurs** : `401` (`TOKEN_MISSING`, `TOKEN_EXPIRED`, `TOKEN_INVALID`), `403` (`USER_SUSPENDED`,
 `USER_NOT_VERIFIED`)
@@ -537,6 +542,10 @@ Le service appelé vérifie `iss`, `kid`, signature, `exp`, `aud`, `scope`,
 existantes pendant la migration et n'est pas requis avec un nouveau JWT. Les
 scopes des routes existantes sont `profile:read`, `users:backfill:read` et
 `role:write`.
+
+**Consommateurs connus avec `profile:read`** : DiddiAdmin, et DiddiRewards (client `diddirewards`, ticket
+029) qui lit `created_at` et `status` pour ses campagnes « inscrits avant une date » et « les X premiers ».
+DiddiRewards ne doit ni stocker ni journaliser `phone`, `email` ni `full_name`.
 
 La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
 valide jusqu'à son expiration, au maximum 600 secondes par défaut.
