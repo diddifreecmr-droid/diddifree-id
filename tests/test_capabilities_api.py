@@ -125,6 +125,35 @@ async def test_capability_projection_rejects_wrong_service_owner(client, user_se
     assert response.json()["error"]["code"] == "SERVICE_CAPABILITY_OWNER_INVALID"
 
 
+async def test_diddigo_validation_projection_uses_canonical_status(client, user_session):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    requested = await client.post(
+        f"{API}/pro/capabilities/diddigo/driver/request",
+        headers=user_session["headers"],
+    )
+    assert requested.status_code == 201, requested.text
+
+    response = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/status",
+        headers=service_headers(app, service="diddigo"),
+        json={
+            "operational_status": "validated",
+            "actions": [],
+            "projection_version": 2,
+            "event_id": "diddigo-driver-approval-1",
+            "first_enabled_at": "2026-11-25T10:00:00Z",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["access_status"] == "enabled"
+    assert response.json()["operational_status"] == "validated"
+    assert response.json()["status_source"] == "diddigo"
+    assert response.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
+
+
 async def test_admin_controls_access_without_overwriting_operational_status(
     client, admin_session, user_session
 ):

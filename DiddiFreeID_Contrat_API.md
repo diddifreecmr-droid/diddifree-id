@@ -604,6 +604,12 @@ capacités métier sans ajouter de rôle métier au JWT utilisateur.
 fenêtre configurée ; cela ne donne ni ne retire à lui seul une permission
 métier.
 
+Pour une validation métier réussie, le module propriétaire utilise la valeur
+canonique `operational_status=validated`. Cette valeur est réutilisable pour
+un chauffeur, un coursier, un restaurant ou tout autre profil métier. Les
+états préparatoires et opérationnels restent propres au module (`requested`,
+`pending_verification`, `vehicle_missing`, `ready`, etc.).
+
 ### `POST /pro/capabilities/{service}/{type}/request`
 
 Demande utilisateur idempotente d'activation d'une capacité. Elle crée ou
@@ -616,6 +622,34 @@ un JWT service visant `aud=diddifree-id`, le scope `capabilities:write`,
 `X-Client-ID` correspondant au token et un service JWT identique au segment
 `{service}`. Les versions anciennes sont ignorées ; une même version avec un
 autre événement est rejetée en conflit.
+
+`event_id` est obligatoire et doit rester stable lors des retries. Un même
+`event_id` est idempotent même si le client le renvoie avec une version ou un
+payload différent : DiddiFreeID retourne l'état déjà appliqué sans nouvelle
+écriture. Une version plus ancienne est ignorée ; une version identique avec
+un autre `event_id` est rejetée en conflit.
+
+Exemple après validation DiddiGo :
+
+```json
+{
+  "access_status": "enabled",
+  "operational_status": "validated",
+  "first_enabled_at": "2026-11-25T10:00:00Z",
+  "status_source": "diddigo",
+  "projection_version": 3,
+  "event_id": "diddigo-driver-approval-<event-id>"
+}
+```
+
+`first_enabled_at` est la date réelle de première validation fournie par le
+module propriétaire. DiddiFreeID la conserve et ne la remplace pas lors d'une
+réactivation.
+
+Lorsque `operational_status=validated`, DiddiFreeID positionne également
+`access_status=enabled` dans la même opération. Cette promotion est générique
+et s'applique à tous les modules propriétaires ; elle ne remplace pas les
+contrôles opérationnels ultérieurs du module.
 
 ### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
 

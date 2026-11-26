@@ -74,7 +74,7 @@ class UpdateCapabilityProjection:
         operational_status: str,
         actions: list[str],
         projection_version: int,
-        event_id: str | None,
+        event_id: str,
         first_enabled_at: datetime | None = None,
     ) -> dict:
         _validate_names(service, capability_type)
@@ -82,16 +82,11 @@ class UpdateCapabilityProjection:
             observe_capability_event(operation="projection", result="user_not_found", service=service)
             raise ApiError(404, "USER_NOT_FOUND", "Aucun utilisateur trouvé avec cet identifiant.")
         current = await self.capabilities.get(user_id, service, capability_type)
+        if current is not None and event_id == current.last_event_id:
+            observe_capability_event(operation="projection", result="duplicate", service=service)
+            return current.as_payload()
         if current is not None and projection_version < current.projection_version:
             observe_capability_event(operation="projection", result="stale_version", service=service)
-            return current.as_payload()
-        if (
-            current is not None
-            and projection_version == current.projection_version
-            and event_id is not None
-            and event_id == current.last_event_id
-        ):
-            observe_capability_event(operation="projection", result="duplicate", service=service)
             return current.as_payload()
         if current is not None and projection_version == current.projection_version:
             observe_capability_event(operation="projection", result="version_conflict", service=service)
@@ -104,6 +99,7 @@ class UpdateCapabilityProjection:
             user_id=user_id,
             service=service,
             capability_type=capability_type,
+            access_status="enabled" if operational_status == "validated" else None,
             operational_status=operational_status,
             status_source=service,
             actions=actions,

@@ -154,10 +154,22 @@ class KycDecisionRequest(BaseModel):
 
 
 class CapabilityProjectionRequest(BaseModel):
-    operational_status: str = Field(min_length=1, max_length=80, examples=["vehicle_missing"])
+    operational_status: str = Field(
+        min_length=1,
+        max_length=80,
+        examples=["validated"],
+        description=(
+            "Etat opérationnel fourni par le module propriétaire. "
+            "Utiliser validated pour une validation métier réussie."
+        ),
+    )
     actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])
     projection_version: int = Field(ge=1, examples=[2])
-    event_id: str | None = Field(default=None, max_length=160)
+    event_id: str = Field(
+        min_length=1,
+        max_length=160,
+        description="Identifiant stable de l'événement, utilisé pour l'idempotence S2S.",
+    )
     first_enabled_at: datetime | None = Field(
         default=None,
         description="UTC date supplied by the owning business module on first validation.",
