@@ -232,6 +232,9 @@ def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
         updated_at=row.updated_at,
         created_at=row.created_at,
         first_enabled_at=row.first_enabled_at,
+        last_access_event_id=row.last_access_event_id,
+        access_reason=row.access_reason,
+        access_updated_at=row.access_updated_at,
     )
 
 
@@ -265,6 +268,8 @@ class SqlAlchemyCapabilityWriteRepository:
         projection_version: int | None = None,
         last_event_id: str | None = None,
         first_enabled_at: datetime | None = None,
+        last_access_event_id: str | None = None,
+        access_reason: str | None = None,
     ) -> Capability:
         result = await self._session.execute(
             select(orm.UserCapabilityModel)
@@ -279,6 +284,8 @@ class SqlAlchemyCapabilityWriteRepository:
         row = result.scalar_one_or_none()
         now = datetime.now(UTC)
         if row is not None and last_event_id is not None and row.last_event_id == last_event_id:
+            return _capability_to_domain(row)
+        if row is not None and last_access_event_id is not None and row.last_access_event_id == last_access_event_id:
             return _capability_to_domain(row)
         if row is None:
             first_enabled_at = first_enabled_at or (now if access_status == "enabled" else None)
@@ -295,6 +302,9 @@ class SqlAlchemyCapabilityWriteRepository:
                 created_at=now,
                 updated_at=now,
                 first_enabled_at=first_enabled_at,
+                last_access_event_id=last_access_event_id,
+                access_reason=access_reason,
+                access_updated_at=now if last_access_event_id is not None else None,
             )
             self._session.add(row)
         else:
@@ -314,12 +324,40 @@ class SqlAlchemyCapabilityWriteRepository:
                 row.projection_version = projection_version
             if last_event_id is not None:
                 row.last_event_id = last_event_id
+            if last_access_event_id is not None:
+                row.last_access_event_id = last_access_event_id
+                row.access_reason = access_reason
+                row.access_updated_at = now
             row.updated_at = now
         await self._session.flush()
         return _capability_to_domain(row)
 
     async def commit(self) -> None:
         await self._session.commit()
+
+    async def record_access_change(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        from_status: str | None,
+        to_status: str,
+        reason: str,
+        event_id: str,
+    ) -> None:
+        self._session.add(
+            orm.UserCapabilityAccessHistoryModel(
+                user_id=user_id,
+                service=service,
+                capability_type=capability_type,
+                from_status=from_status,
+                to_status=to_status,
+                reason=reason,
+                event_id=event_id,
+            ),
+        )
+        await self._session.flush()
 
 
 class SqlAlchemyOtpRepository:

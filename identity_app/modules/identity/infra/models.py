@@ -363,3 +363,40 @@ class UserCapabilityModel(Base):
     first_enabled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    last_access_event_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    access_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UserCapabilityAccessHistoryModel(Base):
+    """Immutable audit trail for service-owned capability access decisions."""
+
+    __tablename__ = "user_capability_access_history"
+    __table_args__ = (
+        Index("idx_capability_access_history_user", "user_id"),
+        Index(
+            "uq_capability_access_history_event",
+            "user_id",
+            "service",
+            "capability_type",
+            "event_id",
+            unique=True,
+        ),
+        {"schema": "identity"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("identity.users.id", ondelete="CASCADE"), nullable=False,
+    )
+    service: Mapped[str] = mapped_column(String(80), nullable=False)
+    capability_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()"),
+    )

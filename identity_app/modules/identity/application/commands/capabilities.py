@@ -175,3 +175,78 @@ class UpdateCapabilityAccess:
         )
         observe_capability_event(operation="access", result="updated", service=service)
         return capability.as_payload()
+
+
+@dataclass
+class UpdateCapabilityAccessByService:
+    """Apply an access decision from the owning business module."""
+
+    capabilities: CapabilityWriteRepository
+    events: EventPublisher
+    users: UserReadRepository
+
+    async def __call__(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        access_status: str,
+        reason: str,
+        event_id: str,
+        enabled_at: datetime | None,
+    ) -> dict:
+        _validate_names(service, capability_type)
+        if access_status not in {"enabled", "suspended", "rejected", "revoked"}:
+            raise ApiError(422, "INVALID_CAPABILITY_ACCESS_STATUS", "Statut d'accès invalide.")
+        if await self.users.get_by_id(user_id) is None:
+            observe_capability_event(operation="access", result="user_not_found", service=service)
+            raise ApiError(404, "USER_NOT_FOUND", "Aucun utilisateur trouvé avec cet identifiant.")
+
+        current = await self.capabilities.get(user_id, service, capability_type)
+        if current is not None and current.last_access_event_id == event_id:
+            observe_capability_event(operation="access", result="duplicate", service=service)
+            return current.as_payload()
+        if enabled_at is not None:
+            enabled_at = enabled_at.astimezone(UTC)
+            if enabled_at > datetime.now(UTC):
+                raise ApiError(422, "INVALID_ENABLED_AT", "La date de validation ne peut pas être future.")
+            if access_status != "enabled":
+                raise ApiError(422, "INVALID_ENABLED_AT", "enabled_at est réservé à une activation.")
+
+        capability = await self.capabilities.upsert(
+            user_id=user_id,
+            service=service,
+            capability_type=capability_type,
+            access_status=access_status,
+            status_source=service,
+            first_enabled_at=enabled_at,
+            last_access_event_id=event_id,
+            access_reason=reason,
+        )
+        if current is None or current.last_access_event_id != event_id:
+            await self.capabilities.record_access_change(
+                user_id=user_id,
+                service=service,
+                capability_type=capability_type,
+                from_status=current.access_status if current else None,
+                to_status=access_status,
+                reason=reason,
+                event_id=event_id,
+            )
+        await self.capabilities.commit()
+        await self.events.publish(
+            CapabilityStatusUpdated(
+                user_id=user_id,
+                phone=None,
+                role="user",
+                service=service,
+                capability_type=capability_type,
+                access_status=capability.access_status,
+                operational_status=capability.operational_status,
+                status_source=capability.status_source,
+                projection_version=capability.projection_version,
+            ),
+        )
+        observe_capability_event(operation="access", result="updated", service=service)
+        return capability.as_payload()

@@ -2,12 +2,17 @@ from identity_app.core.settings import settings
 from tests.conftest import API
 
 
-def service_headers(app, *, service: str = "diddisend") -> dict[str, str]:
+def service_headers(
+    app,
+    *,
+    service: str = "diddisend",
+    scopes: tuple[str, ...] = ("capabilities:write",),
+) -> dict[str, str]:
     token = app.state.tokens.issue_service_token(
         service_name=service,
         client_id=f"{service}-staging",
         audience=settings.jwt_issuer,
-        scopes=("capabilities:write",),
+        scopes=scopes,
         lifetime_seconds=600,
     )
     return {
@@ -152,6 +157,50 @@ async def test_diddigo_validation_projection_uses_canonical_status(client, user_
     assert response.json()["operational_status"] == "validated"
     assert response.json()["status_source"] == "diddigo"
     assert response.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
+
+
+async def test_service_access_decision_is_idempotent_and_preserves_first_date(client, user_session):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    headers = service_headers(app, service="diddigo", scopes=("capabilities:access:write",))
+    payload = {
+        "access_status": "enabled",
+        "reason": "kyc_approved",
+        "event_id": "diddigo:driver-access:1",
+        "enabled_at": "2026-11-25T10:00:00Z",
+    }
+
+    first = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/access",
+        headers=headers,
+        json=payload,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["access_status"] == "enabled"
+    assert first.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
+
+    replay = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/access",
+        headers=headers,
+        json=payload | {"access_status": "suspended", "reason": "different"},
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["access_status"] == "enabled"
+    assert replay.json()["access_reason"] == "kyc_approved"
+
+    suspended = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/access",
+        headers=headers,
+        json={
+            "access_status": "suspended",
+            "reason": "kyc_review",
+            "event_id": "diddigo:driver-access:2",
+        },
+    )
+    assert suspended.status_code == 200, suspended.text
+    assert suspended.json()["access_status"] == "suspended"
+    assert suspended.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
 
 
 async def test_admin_controls_access_without_overwriting_operational_status(

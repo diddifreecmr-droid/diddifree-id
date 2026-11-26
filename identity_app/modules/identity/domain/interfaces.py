@@ -112,7 +112,22 @@ class CapabilityWriteRepository(Protocol):
         projection_version: int | None = None,
         last_event_id: str | None = None,
         first_enabled_at: datetime | None = None,
+        last_access_event_id: str | None = None,
+        access_reason: str | None = None,
     ) -> Capability:
+        ...
+
+    async def record_access_change(
+        self,
+        *,
+        user_id: UUID,
+        service: str,
+        capability_type: str,
+        from_status: str | None,
+        to_status: str,
+        reason: str,
+        event_id: str,
+    ) -> None:
         ...
 
     async def commit(self) -> None:

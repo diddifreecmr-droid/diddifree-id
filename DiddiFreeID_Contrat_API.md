@@ -651,6 +651,33 @@ Lorsque `operational_status=validated`, DiddiFreeID positionne également
 et s'applique à tous les modules propriétaires ; elle ne remplace pas les
 contrôles opérationnels ultérieurs du module.
 
+### `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/access`
+
+Route S2S réservée au module propriétaire pour décider de l'accès à son propre
+métier. Elle exige un JWT `client_credentials` visant `aud=diddifree-id`, le
+scope `capabilities:access:write`, un `X-Client-ID` cohérent et un service JWT
+identique au segment `{service}`. Un client DiddiGo ne peut donc modifier que
+`diddigo/*`.
+
+```json
+{
+  "access_status": "enabled",
+  "reason": "kyc_approved",
+  "event_id": "diddigo:driver-access:<user_id>:<uuid>",
+  "enabled_at": "2026-11-25T10:00:00Z"
+}
+```
+
+Les statuts acceptés sont `enabled`, `suspended`, `rejected` et `revoked`.
+`reason` et `event_id` sont obligatoires. Le même `event_id` doit être réutilisé
+pour chaque retry et retourne `200` sans nouvelle modification. `enabled_at`
+est accepté uniquement pour une activation, ne peut pas être dans le futur et
+ne remplace jamais `first_enabled_at` lorsqu'une date existe déjà.
+
+Chaque décision est conservée dans l'audit d'accès avec l'ancien statut, le
+nouveau statut, le service appelant, la raison, l'identifiant d'événement et
+la date UTC.
+
 ### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
 
 Mise à jour administrateur de `access_status`. Cette route ne modifie pas

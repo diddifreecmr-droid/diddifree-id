@@ -9,16 +9,26 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path
 
-from identity_app.core.auth_deps import get_current_user_id, require_capability_service
+from identity_app.core.auth_deps import (
+    get_current_user_id,
+    require_capability_access_service,
+    require_capability_service,
+)
 from identity_app.core.deps import (
     get_my_capabilities_query,
     request_capability_command,
+    update_capability_access_by_service_command,
     update_capability_projection_command,
 )
-from identity_app.modules.identity.application.commands import RequestCapability, UpdateCapabilityProjection
+from identity_app.modules.identity.application.commands import (
+    RequestCapability,
+    UpdateCapabilityAccessByService,
+    UpdateCapabilityProjection,
+)
 from identity_app.modules.identity.application.queries import GetMyCapabilities
 from identity_app.modules.identity.presentation.schemas import (
     CapabilityProjectionRequest,
+    CapabilityServiceAccessRequest,
     CapabilityResponse,
     ProMeResponse,
 )
@@ -69,4 +79,33 @@ async def update_capability_projection(
         projection_version=payload.projection_version,
         event_id=payload.event_id,
         first_enabled_at=payload.first_enabled_at,
+    )
+
+
+@router.patch(
+    "/internal/users/{user_id}/capabilities/{service}/{capability_type}/access",
+    response_model=CapabilityResponse,
+    summary="Service-owned capability access decision",
+    description=(
+        "The owning service may enable, suspend, reject, or revoke only its own "
+        "capability. Reuse event_id for retries; enabled_at is accepted only "
+        "for an enabled decision and is never used to replace first_enabled_at."
+    ),
+)
+async def update_capability_access_by_service(
+    payload: CapabilityServiceAccessRequest,
+    user_id: UUID,
+    service: str = Path(min_length=1, max_length=80),
+    capability_type: str = Path(min_length=1, max_length=80),
+    _service: None = Depends(require_capability_access_service),
+    command: UpdateCapabilityAccessByService = Depends(update_capability_access_by_service_command),
+) -> dict:
+    return await command(
+        user_id=user_id,
+        service=service,
+        capability_type=capability_type,
+        access_status=payload.access_status,
+        reason=payload.reason,
+        event_id=payload.event_id,
+        enabled_at=payload.enabled_at,
     )

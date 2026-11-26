@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-CAPABILITY_ACCESS_STATUSES = frozenset({"requested", "enabled", "suspended", "revoked"})
+CAPABILITY_ACCESS_STATUSES = frozenset({"requested", "enabled", "suspended", "rejected", "revoked"})
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,9 @@ class Capability:
     updated_at: datetime
     created_at: datetime
     first_enabled_at: datetime | None = None
+    last_access_event_id: str | None = None
+    access_reason: str | None = None
+    access_updated_at: datetime | None = None
 
     def as_payload(self) -> dict:
         updated_at = self.updated_at.astimezone(UTC)
@@ -41,6 +44,12 @@ class Capability:
             "first_enabled_at": (
                 self.first_enabled_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
                 if self.first_enabled_at is not None
+                else None
+            ),
+            "access_reason": self.access_reason,
+            "access_updated_at": (
+                self.access_updated_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                if self.access_updated_at is not None
                 else None
             ),
         }

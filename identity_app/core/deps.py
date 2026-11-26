@@ -36,6 +36,7 @@ from identity_app.modules.identity.application.commands import (
     RequestContactLinkOtp,
     RequestOtp,
     UpdateCapabilityAccess,
+    UpdateCapabilityAccessByService,
     UpdateCapabilityProjection,
     UpdateProfile,
     VerifyContactLinkOtp,
@@ -365,6 +366,14 @@ def update_capability_access_command(
     users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
 ) -> UpdateCapabilityAccess:
     return UpdateCapabilityAccess(capabilities=capabilities, events=events, users=users)
+
+
+def update_capability_access_by_service_command(
+    capabilities: SqlAlchemyCapabilityWriteRepository = Depends(capability_write_repo),
+    events: RedisEventPublisher = Depends(event_publisher),
+    users: SqlAlchemyUserReadRepository = Depends(user_read_repo),
+) -> UpdateCapabilityAccessByService:
+    return UpdateCapabilityAccessByService(capabilities=capabilities, events=events, users=users)
 
 
 def get_jwks_query(tokens: TokenService = Depends(get_token_service)) -> GetJwks:

@@ -187,6 +187,9 @@ def _capability_to_domain(row: orm.UserCapabilityModel) -> Capability:
         updated_at=row.updated_at,
         created_at=row.created_at,
         first_enabled_at=row.first_enabled_at,
+        last_access_event_id=row.last_access_event_id,
+        access_reason=row.access_reason,
+        access_updated_at=row.access_updated_at,
     )
 
 
