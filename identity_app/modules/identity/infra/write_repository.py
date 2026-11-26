@@ -255,6 +255,21 @@ class SqlAlchemyCapabilityWriteRepository:
         row = result.scalar_one_or_none()
         return None if row is None else _capability_to_domain(row)
 
+    async def has_access_event(
+        self, user_id: UUID, service: str, capability_type: str, event_id: str
+    ) -> bool:
+        result = await self._session.execute(
+            select(orm.UserCapabilityAccessHistoryModel.id)
+            .where(
+                orm.UserCapabilityAccessHistoryModel.user_id == user_id,
+                orm.UserCapabilityAccessHistoryModel.service == service,
+                orm.UserCapabilityAccessHistoryModel.capability_type == capability_type,
+                orm.UserCapabilityAccessHistoryModel.event_id == event_id,
+            )
+            .limit(1),
+        )
+        return result.scalar_one_or_none() is not None
+
     async def upsert(
         self,
         *,

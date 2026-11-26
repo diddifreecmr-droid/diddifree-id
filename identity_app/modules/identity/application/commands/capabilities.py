@@ -85,6 +85,24 @@ class UpdateCapabilityProjection:
         if current is not None and event_id == current.last_event_id:
             observe_capability_event(operation="projection", result="duplicate", service=service)
             return current.as_payload()
+        if current is not None and operational_status == "validated" and current.access_status in {
+            "suspended", "revoked", "rejected",
+        }:
+            observe_capability_event(operation="projection", result="access_conflict", service=service)
+            raise ApiError(
+                409,
+                "CAPABILITY_ACCESS_CONFLICT",
+                "La validation ne peut pas réactiver un accès suspendu, révoqué ou rejeté.",
+            )
+        if operational_status == "revalidated" and (
+            current is None or current.access_status != "suspended"
+        ):
+            observe_capability_event(operation="projection", result="invalid_transition", service=service)
+            raise ApiError(
+                409,
+                "CAPABILITY_ACCESS_CONFLICT",
+                "revalidated est réservé à la réactivation d'un accès suspendu.",
+            )
         if current is not None and projection_version < current.projection_version:
             observe_capability_event(operation="projection", result="stale_version", service=service)
             return current.as_payload()
@@ -99,7 +117,7 @@ class UpdateCapabilityProjection:
             user_id=user_id,
             service=service,
             capability_type=capability_type,
-            access_status="enabled" if operational_status == "validated" else None,
+            access_status="enabled" if operational_status in {"validated", "revalidated"} else None,
             operational_status=operational_status,
             status_source=service,
             actions=actions,
@@ -156,7 +174,6 @@ class UpdateCapabilityAccess:
             service=service,
             capability_type=capability_type,
             access_status=access_status,
-            projection_version=(current.projection_version + 1) if current else 1,
             status_source="diddifreeid",
         )
         await self.capabilities.commit()
@@ -207,6 +224,9 @@ class UpdateCapabilityAccessByService:
         if current is not None and current.last_access_event_id == event_id:
             observe_capability_event(operation="access", result="duplicate", service=service)
             return current.as_payload()
+        if await self.capabilities.has_access_event(user_id, service, capability_type, event_id):
+            observe_capability_event(operation="access", result="duplicate", service=service)
+            return current.as_payload() if current is not None else {}
         if enabled_at is not None:
             enabled_at = enabled_at.astimezone(UTC)
             if enabled_at > datetime.now(UTC):

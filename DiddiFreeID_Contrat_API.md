@@ -627,7 +627,8 @@ autre événement est rejetée en conflit.
 `event_id` est idempotent même si le client le renvoie avec une version ou un
 payload différent : DiddiFreeID retourne l'état déjà appliqué sans nouvelle
 écriture. Une version plus ancienne est ignorée ; une version identique avec
-un autre `event_id` est rejetée en conflit.
+un autre `event_id` est rejetée en conflit. Un événement ancien retrouvé dans
+l'historique est également traité comme un retry idempotent et retourne `200`.
 
 Exemple après validation DiddiGo :
 
@@ -648,8 +649,11 @@ réactivation.
 
 Lorsque `operational_status=validated`, DiddiFreeID positionne également
 `access_status=enabled` dans la même opération. Cette promotion est générique
-et s'applique à tous les modules propriétaires ; elle ne remplace pas les
-contrôles opérationnels ultérieurs du module.
+et s'applique à tous les modules propriétaires. Elle est refusée avec `409
+CAPABILITY_ACCESS_CONFLICT` si l'accès courant est `suspended`, `revoked` ou
+`rejected`. Pour réactiver explicitement un accès suspendu, le module envoie
+`operational_status=revalidated`. Cette valeur n'est valide que depuis
+`access_status=suspended` et ne modifie jamais `first_enabled_at`.
 
 ### `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/access`
 
@@ -676,7 +680,9 @@ ne remplace jamais `first_enabled_at` lorsqu'une date existe déjà.
 
 Chaque décision est conservée dans l'audit d'accès avec l'ancien statut, le
 nouveau statut, le service appelant, la raison, l'identifiant d'événement et
-la date UTC.
+la date UTC. Les décisions d'accès et les décisions admin ne font pas avancer
+`projection_version`, qui reste la version des événements opérationnels du
+module propriétaire.
 
 ### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
 

@@ -99,6 +99,11 @@ class CapabilityWriteRepository(Protocol):
     async def get(self, user_id: UUID, service: str, capability_type: str) -> Capability | None:
         ...
 
+    async def has_access_event(
+        self, user_id: UUID, service: str, capability_type: str, event_id: str
+    ) -> bool:
+        ...
+
     async def upsert(
         self,
         *,

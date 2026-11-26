@@ -159,6 +159,51 @@ async def test_diddigo_validation_projection_uses_canonical_status(client, user_
     assert response.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
 
 
+async def test_validated_cannot_reactivate_suspended_capability(client, user_session):
+    from identity_app.main import app
+
+    user_id = user_session["user"]["id"]
+    headers = service_headers(app, service="diddigo", scopes=("capabilities:access:write",))
+    requested = await client.post(
+        f"{API}/pro/capabilities/diddigo/driver/request",
+        headers=user_session["headers"],
+    )
+    assert requested.status_code == 201
+
+    suspended = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/access",
+        headers=headers,
+        json={"access_status": "suspended", "reason": "kyc_review", "event_id": "access-suspend-1"},
+    )
+    assert suspended.status_code == 200
+
+    conflict = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/status",
+        headers=service_headers(app, service="diddigo"),
+        json={
+            "operational_status": "validated",
+            "actions": [],
+            "projection_version": 2,
+            "event_id": "approval-after-suspension",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "CAPABILITY_ACCESS_CONFLICT"
+
+    revalidated = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/status",
+        headers=service_headers(app, service="diddigo"),
+        json={
+            "operational_status": "revalidated",
+            "actions": [],
+            "projection_version": 2,
+            "event_id": "revalidation-1",
+        },
+    )
+    assert revalidated.status_code == 200, revalidated.text
+    assert revalidated.json()["access_status"] == "enabled"
+
+
 async def test_service_access_decision_is_idempotent_and_preserves_first_date(client, user_session):
     from identity_app.main import app
 
@@ -201,6 +246,14 @@ async def test_service_access_decision_is_idempotent_and_preserves_first_date(cl
     assert suspended.status_code == 200, suspended.text
     assert suspended.json()["access_status"] == "suspended"
     assert suspended.json()["first_enabled_at"] == "2026-11-25T10:00:00Z"
+
+    late_retry = await client.patch(
+        f"{API}/pro/internal/users/{user_id}/capabilities/diddigo/driver/access",
+        headers=headers,
+        json=payload,
+    )
+    assert late_retry.status_code == 200, late_retry.text
+    assert late_retry.json()["access_status"] == "suspended"
 
 
 async def test_admin_controls_access_without_overwriting_operational_status(

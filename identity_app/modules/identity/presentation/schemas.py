@@ -157,10 +157,11 @@ class CapabilityProjectionRequest(BaseModel):
     operational_status: str = Field(
         min_length=1,
         max_length=80,
-        examples=["validated"],
+        examples=["validated", "revalidated"],
         description=(
             "Etat opérationnel fourni par le module propriétaire. "
-            "Utiliser validated pour une validation métier réussie."
+            "Utiliser validated pour une validation initiale et revalidated "
+            "pour réactiver explicitement un accès suspendu."
         ),
     )
     actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])

@@ -20,6 +20,9 @@ class FakeCapabilities:
     async def get(self, user_id, service, capability_type):  # noqa: ANN001
         return self.capability
 
+    async def has_access_event(self, user_id, service, capability_type, event_id):  # noqa: ANN001
+        return False
+
     async def upsert(self, **kwargs):  # noqa: ANN003
         now = datetime.now(UTC)
         self.capability = Capability(
