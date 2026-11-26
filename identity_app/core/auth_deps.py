@@ -195,6 +195,35 @@ async def require_capability_service(
     )
 
 
+async def require_capability_access_service(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize a module to change access for its own capabilities only."""
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("status") != UserStatus.ACTIVE.value:
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service inactif.")
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au client du token service.")
+    if request.path_params.get("service") != claims.get("service"):
+        raise ApiError(403, "SERVICE_CAPABILITY_OWNER_INVALID", "Le service ne peut modifier que son propre accès.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"capabilities:access:write"},
+    )
+
+
 async def require_pilotage_reporting(
     request: Request,
     x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
@@ -251,6 +280,37 @@ async def require_support_context_reader(
         credentials.credentials,
         audience=settings.jwt_issuer,
         required_scopes={"identity:support-context:read"},
+    )
+
+
+async def require_rewards_capability_reader(
+    request: Request,
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID"),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    tokens: TokenService = Depends(get_token_service),
+) -> None:
+    """Authorize DiddiRewards to read the minimal capability projection."""
+    if credentials is None or not credentials.credentials:
+        raise ApiError(401, "TOKEN_MISSING", "Authentification service requise.")
+    if not x_client_id:
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID est requis.")
+
+    claims = tokens.decode_access_token(credentials.credentials)
+    request.state.claims = claims
+    if claims.get("role") != SERVICE_ROLE or claims.get("token_type") != "service":
+        raise ApiError(401, "SERVICE_TOKEN_INVALID", "Token service invalide.")
+    if claims.get("service") != "diddirewards":
+        raise ApiError(
+            403,
+            "SERVICE_REWARDS_CAPABILITIES_FORBIDDEN",
+            "Seul DiddiRewards peut lire ces capabilities.",
+        )
+    if x_client_id != claims.get("client_id"):
+        raise ApiError(401, "SERVICE_CLIENT_ID_INVALID", "X-Client-ID ne correspond pas au token service.")
+    tokens.decode_service_token(
+        credentials.credentials,
+        audience=settings.jwt_issuer,
+        required_scopes={"capabilities:read"},
     )
 
 

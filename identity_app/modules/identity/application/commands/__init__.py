@@ -17,6 +17,7 @@ No command ever calls a query, and no query ever calls a command.
 from identity_app.modules.identity.application.commands.capabilities import (
     RequestCapability,
     UpdateCapabilityAccess,
+    UpdateCapabilityAccessByService,
     UpdateCapabilityProjection,
 )
 from identity_app.modules.identity.application.commands.change_review_account import ChangeReviewAccount
@@ -39,6 +40,7 @@ __all__ = [
     "ChangeReviewAccount",
     "RequestCapability",
     "UpdateCapabilityAccess",
+    "UpdateCapabilityAccessByService",
     "UpdateCapabilityProjection",
     "ChangeStatus",
     "RequestAccountDeletion",

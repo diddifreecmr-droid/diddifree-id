@@ -20,6 +20,9 @@ class FakeCapabilities:
     async def get(self, user_id, service, capability_type):  # noqa: ANN001
         return self.capability
 
+    async def has_access_event(self, user_id, service, capability_type, event_id):  # noqa: ANN001
+        return False
+
     async def upsert(self, **kwargs):  # noqa: ANN003
         now = datetime.now(UTC)
         self.capability = Capability(
@@ -95,3 +98,38 @@ async def test_projection_rejects_same_version_with_another_event() -> None:
         )
 
     assert error.value.code == "CAPABILITY_VERSION_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_projection_replays_same_event_even_with_a_newer_version() -> None:
+    now = datetime.now(UTC)
+    repo = FakeCapabilities(
+        Capability(
+            user_id=uuid4(),
+            service="diddigo",
+            capability_type="driver",
+            access_status="enabled",
+            operational_status="validated",
+            status_source="diddigo",
+            actions=(),
+            projection_version=2,
+            last_event_id="approval-1",
+            updated_at=now,
+            created_at=now,
+        ),
+    )
+    command = UpdateCapabilityProjection(repo, NullEventPublisher(), FakeUsers())
+
+    result = await command(
+        user_id=repo.capability.user_id,
+        service="diddigo",
+        capability_type="driver",
+        operational_status="suspended",
+        actions=["review"],
+        projection_version=3,
+        event_id="approval-1",
+    )
+
+    assert result["operational_status"] == "validated"
+    assert result["projection_version"] == 2
+    assert repo.commits == 0

@@ -8,6 +8,7 @@ reshaped a second time here.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
@@ -153,14 +154,45 @@ class KycDecisionRequest(BaseModel):
 
 
 class CapabilityProjectionRequest(BaseModel):
-    operational_status: str = Field(min_length=1, max_length=80, examples=["vehicle_missing"])
+    operational_status: str = Field(
+        min_length=1,
+        max_length=80,
+        examples=["validated", "revalidated"],
+        description=(
+            "Etat opérationnel fourni par le module propriétaire. "
+            "Utiliser validated pour une validation initiale et revalidated "
+            "pour réactiver explicitement un accès suspendu."
+        ),
+    )
     actions: list[str] = Field(default_factory=list, max_length=20, examples=[["complete_vehicle"]])
     projection_version: int = Field(ge=1, examples=[2])
-    event_id: str | None = Field(default=None, max_length=160)
+    event_id: str = Field(
+        min_length=1,
+        max_length=160,
+        description="Identifiant stable de l'événement, utilisé pour l'idempotence S2S.",
+    )
+    first_enabled_at: datetime | None = Field(
+        default=None,
+        description="UTC date supplied by the owning business module on first validation.",
+    )
 
 
 class CapabilityAccessRequest(BaseModel):
-    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    access_status: Literal["requested", "enabled", "suspended", "rejected", "revoked"]
+
+
+class CapabilityServiceAccessRequest(BaseModel):
+    access_status: Literal["enabled", "suspended", "rejected", "revoked"]
+    reason: str = Field(min_length=1, max_length=500)
+    event_id: str = Field(
+        min_length=1,
+        max_length=160,
+        description="Identifiant stable de la décision, réutilisé pour chaque retry.",
+    )
+    enabled_at: datetime | None = Field(
+        default=None,
+        description="Date historique de première validation ; obligatoire seulement pour un backfill.",
+    )
 
 
 class ServiceClientUpdateRequest(BaseModel):
@@ -272,7 +304,7 @@ class UserListResponse(BaseModel):
 class CapabilityResponse(BaseModel):
     service: str
     type: str
-    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    access_status: Literal["requested", "enabled", "suspended", "rejected", "revoked"]
     operational_status: str
     status_source: str
     actions: list[str]
@@ -280,6 +312,9 @@ class CapabilityResponse(BaseModel):
     last_event_id: str | None
     updated_at: str
     created_at: str
+    first_enabled_at: str | None = None
+    access_reason: str | None = None
+    access_updated_at: str | None = None
     freshness: Literal["fresh", "stale"] = "fresh"
 
 
@@ -292,7 +327,7 @@ class ProMeResponse(BaseModel):
 class SupportCapabilityContext(BaseModel):
     service: str
     type: str
-    access_status: Literal["requested", "enabled", "suspended", "revoked"]
+    access_status: Literal["requested", "enabled", "suspended", "rejected", "revoked"]
     operational_status: str
     status_source: str
     updated_at: str

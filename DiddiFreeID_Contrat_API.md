@@ -550,6 +550,25 @@ DiddiRewards ne doit ni stocker ni journaliser `phone`, `email` ni `full_name`.
 La révocation d'un client empêche les nouveaux tokens. Un token déjà émis reste
 valide jusqu'à son expiration, au maximum 600 secondes par défaut.
 
+### Lecture Rewards des capabilities professionnelles
+
+`GET /identity/v1/users/{user_id}/capabilities` est réservé au service
+`diddirewards`. Le JWT doit viser l'audience `diddifree-id`, porter le scope
+`capabilities:read` et être accompagné de `X-Client-ID` égal à `client_id`.
+
+La réponse expose uniquement la projection globale : `service`, `type`,
+`access_status`, `operational_status`, `status_source`, `updated_at`,
+`created_at` et `first_enabled_at`. Cette dernière est la première date à
+laquelle l'accès est devenu `enabled`; elle reste inchangée après une
+suspension ou une réactivation. Les critères de validation restent la
+responsabilité du module métier indiqué par `status_source`.
+
+Lorsqu'un module métier projette sa validation via
+`PATCH /identity/v1/pro/internal/users/{user_id}/capabilities/{service}/{type}/status`,
+il peut fournir `first_enabled_at`. DiddiFreeID l'accepte uniquement si la
+valeur n'existe pas encore et ne la remplace jamais lors d'une suspension ou
+d'une réactivation.
+
 Un token d'administrateur est également accepté sur cette route.
 
 ### `GET /pro/me`
@@ -585,6 +604,12 @@ capacités métier sans ajouter de rôle métier au JWT utilisateur.
 fenêtre configurée ; cela ne donne ni ne retire à lui seul une permission
 métier.
 
+Pour une validation métier réussie, le module propriétaire utilise la valeur
+canonique `operational_status=validated`. Cette valeur est réutilisable pour
+un chauffeur, un coursier, un restaurant ou tout autre profil métier. Les
+états préparatoires et opérationnels restent propres au module (`requested`,
+`pending_verification`, `vehicle_missing`, `ready`, etc.).
+
 ### `POST /pro/capabilities/{service}/{type}/request`
 
 Demande utilisateur idempotente d'activation d'une capacité. Elle crée ou
@@ -597,6 +622,67 @@ un JWT service visant `aud=diddifree-id`, le scope `capabilities:write`,
 `X-Client-ID` correspondant au token et un service JWT identique au segment
 `{service}`. Les versions anciennes sont ignorées ; une même version avec un
 autre événement est rejetée en conflit.
+
+`event_id` est obligatoire et doit rester stable lors des retries. Un même
+`event_id` est idempotent même si le client le renvoie avec une version ou un
+payload différent : DiddiFreeID retourne l'état déjà appliqué sans nouvelle
+écriture. Une version plus ancienne est ignorée ; une version identique avec
+un autre `event_id` est rejetée en conflit. Un événement ancien retrouvé dans
+l'historique est également traité comme un retry idempotent et retourne `200`.
+
+Exemple après validation DiddiGo :
+
+```json
+{
+  "access_status": "enabled",
+  "operational_status": "validated",
+  "first_enabled_at": "2026-11-25T10:00:00Z",
+  "status_source": "diddigo",
+  "projection_version": 3,
+  "event_id": "diddigo-driver-approval-<event-id>"
+}
+```
+
+`first_enabled_at` est la date réelle de première validation fournie par le
+module propriétaire. DiddiFreeID la conserve et ne la remplace pas lors d'une
+réactivation.
+
+Lorsque `operational_status=validated`, DiddiFreeID positionne également
+`access_status=enabled` dans la même opération. Cette promotion est générique
+et s'applique à tous les modules propriétaires. Elle est refusée avec `409
+CAPABILITY_ACCESS_CONFLICT` si l'accès courant est `suspended`, `revoked` ou
+`rejected`. Pour réactiver explicitement un accès suspendu, le module envoie
+`operational_status=revalidated`. Cette valeur n'est valide que depuis
+`access_status=suspended` et ne modifie jamais `first_enabled_at`.
+
+### `PATCH /pro/internal/users/{user_id}/capabilities/{service}/{type}/access`
+
+Route S2S réservée au module propriétaire pour décider de l'accès à son propre
+métier. Elle exige un JWT `client_credentials` visant `aud=diddifree-id`, le
+scope `capabilities:access:write`, un `X-Client-ID` cohérent et un service JWT
+identique au segment `{service}`. Un client DiddiGo ne peut donc modifier que
+`diddigo/*`.
+
+```json
+{
+  "access_status": "enabled",
+  "reason": "kyc_approved",
+  "event_id": "diddigo:driver-access:<user_id>:<uuid>",
+  "enabled_at": "2026-11-25T10:00:00Z"
+}
+```
+
+Les statuts acceptés sont `enabled`, `suspended`, `rejected` et `revoked`.
+`reason` et `event_id` sont obligatoires. Le même `event_id` doit être réutilisé
+pour chaque retry et retourne `200` sans nouvelle modification. `enabled_at`
+est accepté uniquement pour une activation, ne peut pas être dans le futur et
+ne remplace jamais `first_enabled_at` lorsqu'une date existe déjà.
+
+Chaque décision est conservée dans l'audit d'accès avec l'ancien statut, le
+nouveau statut, le service appelant, la raison, l'identifiant d'événement et
+la date UTC. Les décisions d'accès et les décisions admin ne font pas avancer
+`projection_version`, qui reste la version des événements opérationnels du
+module propriétaire.
 
 ### `PATCH /admin/users/{user_id}/capabilities/{service}/{type}`
 

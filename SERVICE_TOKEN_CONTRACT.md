@@ -107,6 +107,25 @@ python scripts/create_service_client.py \
   --scope capabilities:access:write
 ```
 
+For DiddiAdmin calls to DiddiSupport:
+
+```bash
+python scripts/provision_diddiadmin_diddisupport_client.py --environment staging
+```
+
+This provisions `backoffice-staging-diddisupport` with
+`service=diddiadmin`, `audience=diddi-support`, and the deliberately minimal
+scopes `diddi-support:read` and `diddi-support:write`. The resulting JWT has
+`sub=service:diddiadmin`.
+
+The DiddiAdmin BFF must send its service token with `X-Client-ID` and, for
+every DiddiSupport call, `X-Backoffice-Actor`, `X-Backoffice-Reason`, and
+`X-Request-ID`. DiddiSupport uses those headers for authorization and audit.
+This client intentionally cannot assign or transfer cases, send
+user-visible replies, operate SOS alerts, or access attachments. Grant those
+scopes later through the admin service-client policy only when the Backoffice
+implements and tests the matching workflow.
+
 ## DiddiMap clients
 
 DiddiFreeID provisions one client per consuming service. All four clients use

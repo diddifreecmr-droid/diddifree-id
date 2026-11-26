@@ -5,9 +5,9 @@
 1. Inject the values listed in `docs/OBSERVABILITY.md` through the deployment secret store. The standard HTTPS DiddiObserve endpoint uses the image trust store; set `OTEL_EXPORTER_OTLP_CERTIFICATE` only for an explicitly approved private CA.
 2. Deploy a unique immutable `SERVICE_VERSION`, `ENVIRONMENT` and `DEPLOYMENT_ID`.
 3. Confirm `/health/live`, `/health/ready` and `/metrics` with the scraper credential from inside the observability network.
-4. Mount `OBSERVABILITY_LOG_VOLUME_NAME` read-only in DiddiObserve and collect only `/var/log/diddifree/observability-api.jsonl` and `/var/log/diddifree/observability-worker.jsonl`; persist collector positions and do not add a Docker socket.
-5. Generate one safe test request with an `X-Request-ID`; find its JSON log, metric increment and trace in DiddiObserve.
-6. Test the `account-purger` separately and verify it writes only its worker file. Do not configure a second central log transport for the same events.
+4. Set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`, `OTEL_LOGS_ENABLED=true` and the dedicated logs endpoint on both API and worker. Keep the shared OTLP headers secret out of Git.
+5. Coordinate with DiddiObserve: validate one OTLP canary excluded from the legacy file collector, then disable the collector's JSONL volume mount before general OTLP log export.
+6. Generate one safe request with an `X-Request-ID`; find its OTLP log, metric increment and trace in DiddiObserve. Test `account-purger` separately.
 
 ## OTP exception
 

@@ -1,15 +1,19 @@
-# Diddi Observability v1 - DiddiFreeID
+# Diddi Observability 2.0.0 - DiddiFreeID
 
-This module implements the local portion of `DIDDI Observability v1.2.1`. Its
+This module implements the local portion of `DIDDI Observability 2.0.0`. Its
 canonical identity is `diddi/diddifree-id`; `diddiauth` is not a service name.
 The versioned manifest is `observability/diddifree-id.observability.v1.yaml`.
 
 ## Local signals
 
-- Logs are single-line JSON on stdout and, when `OBSERVABILITY_LOG_FILE` is
-  configured, a bounded rotating JSONL file. They include the complete
-  eight-field resource identity. `X-Request-ID` takes precedence over the
-  accepted `X-Correlation-ID` alias and is returned on the response.
+- Logs are normalized once by the existing JSON formatter, then exported in
+  bounded OTLP HTTP/protobuf batches when both `OTEL_ENABLED=true` and
+  `OTEL_LOGS_ENABLED=true`. The same cleaned event remains available on stdout
+  and in the optional rotating JSONL files for local diagnosis only.
+- The API reapplies logging configuration during FastAPI lifespan, after
+  Uvicorn setup. `uvicorn.error`, application and library events propagate once
+  to the root handler; `uvicorn.access` remains disabled to avoid duplicating
+  the normalized HTTP completion event.
 - Credentials, headers and request bodies are not logged. `OTP_LOG_PLAINTEXT`
   remains an explicit staging exception: when true, OTP senders emit
   `otp.code` and `otp.recipient`; when false, neither field is emitted.
@@ -33,24 +37,27 @@ never through Git:
 | `METRICS_BEARER_TOKEN` | scraper bearer credential |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | full OTLP HTTP trace endpoint, if set |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | base OTLP URL, used only when the specific trace URL is empty |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | full OTLP HTTP/protobuf logs endpoint, if set |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | must be `http/protobuf` |
+| `OTEL_LOGS_ENABLED` | explicit log-export activation; requires `OTEL_ENABLED=true` |
 | `OTEL_EXPORTER_OTLP_HEADERS` | collector auth headers when required |
 | `OTEL_EXPORTER_OTLP_CERTIFICATE` | optional mounted private CA path; leave empty for standard public HTTPS |
 | `DEPLOYMENT_ID` | deployment identifier |
 | `DIDDIFREE_ID_OPERATIONS_CONTACT` | on-call contact referenced by the manifest |
 
-Set `OTEL_ENABLED=true`, use `OTEL_TRACE_SAMPLE_RATIO=1.0` during validation
-and `0.1` in production. Set immutable `SERVICE_VERSION`, `ENVIRONMENT` and
+Set `OTEL_ENABLED=true` and `OTEL_LOGS_ENABLED=true`, use
+`OTEL_TRACE_SAMPLE_RATIO=1.0` during validation and `0.1` in production. Set immutable `SERVICE_VERSION`, `ENVIRONMENT` and
 `DEPLOYMENT_ID` for every deploy. The collector scrapes `api:8000/metrics` with
 the configured Bearer credential. The official HTTPS endpoint uses the image's
-standard trust store; never disable TLS verification. The Portainer Compose
-creates the named volume from `OBSERVABILITY_LOG_VOLUME_NAME`; DiddiObserve may
-mount this exact volume read-only and collect only the active files
-`observability-api.jsonl` and `observability-worker.jsonl`, without a Docker
-socket. Each process owns a distinct rotating file.
+standard trust store; never disable TLS verification. `OTEL_EXPORTER_OTLP_HEADERS`
+is shared by the logs and traces exporters, but remains distinct from the metrics
+Bearer token.
 
-The selected central log profile is `file-jsonl`, not OTLP logs. Leave
-`OTEL_LOGS_ENABLED=false` and do not configure an additional central stdout or
-OTLP log exporter, otherwise events would be duplicated. Traces use OTLP only.
+DiddiObserve must first validate a canary excluded from its legacy file collector.
+It must then disable its JSONL volume collection before enabling general OTLP Logs
+for this service. The local files `observability-api.jsonl` and
+`observability-worker.jsonl` remain for troubleshooting but must not be collected
+centrally after the cutover.
 
 ## OTP diagnostic exception
 
@@ -61,17 +68,16 @@ operators with explicit log access; no password, JWT, service secret or other
 credential is covered by this exception. The normal local retention is bounded
 by the two per-process file rotations (10 MiB active plus five archives).
 
-Before collecting these files centrally, the owner must either set
-`OTP_LOG_PLAINTEXT=false` and redeploy, or explicitly approve a central
-filtering, retention and access policy for those two fields. Historical OTP
-lines must never be backfilled. Disable the exception by setting
+The central OTLP pipeline must test `otp.code` and `otp.recipient` only with
+synthetic values and record its access and retention policy. Historical local
+files must never be backfilled. Disable the exception by setting
 `OTP_LOG_PLAINTEXT=false` in Portainer and redeploying the API and worker.
 
 ## Verification status
 
 Local tests cover JSON redaction/correlation, metric authorization and bounded
 route labels, health semantics, worker heartbeats, async producer metadata and
-best-effort trace setup. C01-C05, C08-C10 are locally implementable; C06 needs
+best-effort trace/log setup. C01-C05, C08-C10 are locally implementable; C06 needs
 a downstream service, C07 consumer validation is not applicable here, and
 C11-C12 remain central-platform work. Do not mark the service fully conformant
 before DiddiObserve confirms correlated log/metric/trace ingestion and the
